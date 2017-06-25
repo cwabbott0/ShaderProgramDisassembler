@@ -68,14 +68,20 @@ void iprintf(unsigned indent, const char *format, ...)
 
 void DumpInstructions(unsigned indent, uint8_t* instBlob, uint32_t size)
 {
-	// Instructions are 64bits
-	// Clause headers and tails are mainly 32bit
-	// There can be 64bit clause headers, no idea when they are used
 	uint8_t* instEnd = instBlob + size;
 	while (instBlob != instEnd)
 	{
-		printf("0x%08x\n", *(uint32_t*)instBlob);
-		instBlob += 4;
+		uint32_t *words = (uint32_t*) instBlob;
+		uint8_t tag = words[0] & 0xff;
+		if (tag & 0b00001000)
+			printf("{\n");
+		printf("# ");
+		for (int i = 0; i < 4; i++)
+			printf("%08x ", words[3 - i]); // low bit on the right
+		printf("\n");
+		if (tag & 0b01000000)
+			printf("}\n");
+		instBlob += 16;
 	}
 }
 
@@ -333,6 +339,7 @@ bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint
 		DumpInstructions(indent + 1, blockBlob, size);
 	}
 	break;
+	case COOKIE("CCOM"):
 	case COOKIE("CFRA"):
 	{
 		PrintBlocks(indent + 1, blockBlob, size);
@@ -346,8 +353,6 @@ bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint
 		assert(block->unk2 == 0x2);
 	}
 	break;
-	case COOKIE("CCOM"):
-		break;
 	case COOKIE("KERN"):
 		break;
 	case COOKIE("KWGS"):
