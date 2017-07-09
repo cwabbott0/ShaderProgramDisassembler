@@ -7,7 +7,7 @@
 #include <string.h>
 
 // return bits (high, lo]
-static uint32_t bits(uint32_t word, unsigned lo, unsigned high)
+static uint64_t bits(uint32_t word, unsigned lo, unsigned high)
 {
 	if (high == 32)
 		return word >> lo;
@@ -111,11 +111,12 @@ enum Part0SrcType {
 	Part0TwoSrcFmod,
 	Part0ThreeSrc,
 	Part0ThreeSrcFmod,
+	Part0FourSrc,
 };
 
 struct Part0OpInfo {
 	unsigned op;
-	char name[10];
+	char name[20];
 	Part0SrcType srcType;
 };
 
@@ -123,18 +124,46 @@ static const Part0OpInfo part0OpInfos[] = {
 	{ 0x0000, "FMA",  Part0ThreeSrcFmod },
 	{ 0x1000, "FMAX", Part0TwoSrcFmod },
 	{ 0x1100, "FMIN", Part0TwoSrcFmod },
-	{ 0x13fe, "IADD", Part0TwoSrc },
-	{ 0x13ff, "ISUB", Part0TwoSrc },
-	{ 0x39e0, "IMUL", Part0TwoSrc },
+	{ 0x13fe, "ADD", Part0TwoSrc },
+	{ 0x13ff, "SUB", Part0TwoSrc },
 	{ 0x1600, "FADD", Part0TwoSrcFmod },
-	{ 0x1928, "IXOR", Part0TwoSrc },
-	{ 0x18b8, "IOR",  Part0TwoSrc },
-	{ 0x18c8, "IAND", Part0TwoSrc },
+	{ 0x1700, "CSEL.FEQ", Part0FourSrc },
+	{ 0x1708, "CSEL.FGT", Part0FourSrc },
+	{ 0x1710, "CSEL.FGE", Part0FourSrc },
+	{ 0x1718, "CSEL.IEQ", Part0FourSrc },
+	{ 0x1720, "CSEL.IGT", Part0FourSrc },
+	{ 0x1728, "CSEL.IGE", Part0FourSrc },
+	{ 0x1730, "CSEL.UGT", Part0FourSrc },
+	{ 0x1738, "CSEL.UGE", Part0FourSrc },
+	{ 0x1808, "RSHIFT_NAND", Part0ThreeSrc },
+	{ 0x1838, "RSHIFT_OR", Part0ThreeSrc },
+	{ 0x1848, "RSHIFT_AND", Part0ThreeSrc },
+	{ 0x1878, "RSHIFT_NOR", Part0ThreeSrc }, // ~((src0 << src2) | src1)
+	{ 0x1888, "LSHIFT_NAND", Part0ThreeSrc },
+	{ 0x18b8, "LSHIFT_OR",  Part0ThreeSrc }, // (src0 << src2) | src1
+	{ 0x18c8, "LSHIFT_AND", Part0ThreeSrc }, // (src0 << src2) & src1
+	{ 0x18f8, "LSHIFT_NOR", Part0ThreeSrc },
+	{ 0x1908, "RSHIFT_XOR", Part0ThreeSrc },
+	{ 0x1918, "RSHIFT_XNOR", Part0ThreeSrc }, // ~((src0 >> src2) ^ src1)
+	{ 0x1928, "LSHIFT_XOR", Part0ThreeSrc },
+	{ 0x1938, "LSHIFT_XNOR", Part0ThreeSrc }, // ~((src0 >> src2) ^ src1)
+	{ 0x1948, "LSHIFT_ADD", Part0ThreeSrc },
+	{ 0x1958, "LSHIFT_SUB", Part0ThreeSrc }, // (src0 << src2) - src1
+	{ 0x1968, "LSHIFT_RSUB", Part0ThreeSrc }, // src1 - (src0 << src2)
+	{ 0x1978, "RSHIFT_ADD", Part0ThreeSrc },
+	{ 0x1988, "RSHIFT_SUB", Part0ThreeSrc },
+	{ 0x1998, "RSHIFT_RSUB", Part0ThreeSrc },
+	{ 0x19a8, "ARSHIFT_ADD", Part0ThreeSrc },
+	{ 0x19b8, "ARSHIFT_SUB", Part0ThreeSrc },
+	{ 0x19c8, "ARSHIFT_RSUB", Part0ThreeSrc },
 	{ 0x380c, "MOV",  Part0OneSrc },
 	{ 0x382e, "IMAX", Part0TwoSrc },
 	{ 0x382f, "UMAX", Part0TwoSrc },
 	{ 0x3830, "IMIN", Part0TwoSrc },
 	{ 0x3831, "UMIN", Part0TwoSrc },
+	{ 0x383d, "CSEL", Part0ThreeSrc }, // src2 != 0 ? src1 : src0
+	{ 0x39e0, "IMAD", Part0ThreeSrc },
+	{ 0x39e3, "POPCNT", Part0OneSrc },
 };
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
@@ -154,6 +183,9 @@ static Part0OpInfo findPart0OpInfo(unsigned op)
 				break;
 			case Part0ThreeSrcFmod:
 				opCmp = op & ~0xfff;
+				break;
+			case Part0FourSrc:
+				opCmp = op & ~0x7;
 				break;
 		}
 		if (part0OpInfos[i].op == opCmp)
@@ -219,6 +251,15 @@ static void DumpPart0(uint64_t word, Srcs srcs)
 				printf("-");
 			DumpSrc(part0.src2, srcs, true);
 			break;
+		case Part0FourSrc:
+			DumpSrc(part0.src0, srcs, true);
+			printf(", ");
+			DumpSrc(part0.src1, srcs, true);
+			printf(", ");
+			DumpSrc(part0.src2, srcs, true);
+			printf(", ");
+			DumpSrc(part0.op & 0x7, srcs, true);
+			break;
 	}
 	printf("\n");
 }
@@ -246,11 +287,12 @@ static const Part1OpInfo part1OpInfos[] = {
 	{ 0x0400, "FMIN", Part1TwoSrcFmod },
 	{ 0x0800, "FADD", Part1TwoSrcFmod },
 	{ 0x0f65, "MOV",  Part1OneSrc },
-	{ 0x2f18, "IADD",  Part1TwoSrc },
-	{ 0x2f58, "ISUB",  Part1TwoSrc },
-	{ 0x3ba3, "IOR",  Part1TwoSrc },
-	{ 0x3ba4, "IAND",  Part1TwoSrc },
-	{ 0x3baa, "IXOR",  Part1TwoSrc },
+	{ 0x2f18, "ADD",  Part1TwoSrc },
+	{ 0x2f58, "SUB",  Part1TwoSrc },
+	{ 0x3ba3, "OR",  Part1TwoSrc },
+	{ 0x3bac, "LSHIFT", Part1TwoSrc },
+	{ 0x3ba4, "AND",  Part1TwoSrc },
+	{ 0x3baa, "XOR",  Part1TwoSrc },
 };
 
 static Part1OpInfo findPart1OpInfo(unsigned op)
@@ -313,28 +355,91 @@ static void DumpPart1(uint64_t word, Srcs srcs)
 	printf("\n");
 }
 
+// each of these structs represents an instruction that's dispatched in one
+// cycle. Note that these instructions are packed in funny ways within the
+// clause, hence the need for a separate struct.
+struct AluInstr {
+	uint64_t srcBits;
+	uint64_t part0Bits;
+	uint64_t part1Bits;
+};
+
+void DumpInstr(AluInstr &instr)
+{
+	printf("# srcs: %016" PRIx32 "\n", instr.srcBits);
+	Srcs srcs;
+	memcpy((char *) &srcs, (char *) &instr.srcBits, sizeof(srcs));
+	DumpSrcs(srcs);
+	instr.srcBits = 0;
+	DumpPart0(instr.part0Bits, srcs);
+	instr.part0Bits = 0;
+	DumpPart1(instr.part1Bits, srcs);
+	instr.part1Bits = 0;
+}
+
 void DumpClause(uint32_t *words, uint32_t size)
 {
+	AluInstr instrs[2] = { {0, 0, 0}, {0, 0, 0} };
+	uint64_t consts[3] = { 0, 0, 0 };
+	unsigned num_consts = 0;
 	for (unsigned i = 0; i < size; i++, words += 4) {
 		printf("# ");
 		for (int i = 0; i < 4; i++)
 			printf("%08x ", words[3 - i]); // low bit on the right
 		printf("\n");
-		// 45 bits
-		uint64_t part2Bits = (uint64_t) words[3] << 13 | bits(words[2], 32 - 13, 32);
-		// 20 bits
-		uint32_t part1Bits = bits(words[2], 2, 32 - 13) | ((words[0] & 0b111) << 17);
-		// 23 bits
-		uint64_t part0Bits = bits(words[1], 11, 32) | bits(words[2], 0, 2) << (32 - 11);
-		// 35 bits
-		uint64_t srcBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
-		printf("# srcs: %016" PRIx32 "\n", srcBits);
-		Srcs srcs;
-		memcpy((char *) &srcs, (char *) &srcBits, sizeof(srcs));
-		//DumpSrcs(srcs);
-		DumpPart0(part0Bits, srcs);
-		DumpPart1(part1Bits, srcs);
-		printf("# part2: %016" PRIx64 "\n", part2Bits);
+		unsigned tag = bits(words[0], 3, 8);
+
+		if (tag & 0x10) {
+			instrs[0].part1Bits |= bits(words[1], 3, 6) << 17;
+			instrs[1].part1Bits = bits(words[3], 0, 17) | (bits(words[0], 0, 3) << 17);
+			instrs[1].part0Bits |= bits(words[2], 19, 32) << 10;
+			DumpInstr(instrs[1]);
+		} else {
+			instrs[0].part1Bits |= bits(words[0], 0, 3) << 17;
+		}
+
+		switch (tag) {
+			case 0x4:
+			case 0xC:
+				instrs[1].part0Bits |= bits(words[3], 22, 32);
+				instrs[1].srcBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
+				break;
+			case 0x0:
+			case 0x8:
+				instrs[1].part1Bits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
+				instrs[1].part0Bits |= bits(words[2], 19, 32) << 10;
+				DumpInstr(instrs[1]);
+				break;
+			case 0xe:
+				consts[num_consts + 1] = bits(words[2], 4, 32) << 4 | (uint64_t) words[3] << 32;
+				break;
+			default:
+				break;
+		}
+
+		switch (tag) {
+			case 0xe:
+				consts[num_consts] = (bits(words[0], 8, 32) << 4) | (uint64_t) words[1] << 28 | bits(words[2], 0, 4) << 60;
+				num_consts += 2;
+				break;
+			case 0x8:
+				//consts[num_consts++] = (bits(words[0], 8, 32) << 4) | (uint64_t) words[1] << 28 | bits(words[2], 0, 4) << 60;
+				//break;
+			default:
+				// 20 bits
+				instrs[0].part1Bits |= bits(words[2], 2, 32 - 13);
+				// 23 bits
+				instrs[0].part0Bits = bits(words[1], 11, 32) | bits(words[2], 0, 2) << (32 - 11);
+				// 35 bits
+				instrs[0].srcBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
+				DumpInstr(instrs[0]);
+				break;
+		}
+	}
+
+	for (int i = 0; i < num_consts; i++) {
+		printf("const%d: %08x\n", 2 * i, consts[i] & 0xffffffff);
+		printf("const%d: %08x\n", 2 * i + 1, consts[i] >> 32);
 	}
 }
 
@@ -356,6 +461,8 @@ void DumpInstructions(unsigned indent, uint8_t* instBlob, uint32_t size)
 			uint8_t tag = bundleEnd[0] & 0xf8;
 			// clauses seem to always start with this:
 			if (tag == 0x28)
+				break;
+			if (tag == 0x48)
 				break;
 			bundleEnd += 4;
 		}
