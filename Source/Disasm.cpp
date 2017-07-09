@@ -37,7 +37,7 @@ static void DumpSrcs(Srcs srcs)
 	}
 }
 
-static void DumpSrc(unsigned src, Srcs srcs, bool isPart0)
+static void DumpSrc(unsigned src, Srcs srcs, bool isFMA)
 {
 	switch (src) {
 		case 0: printf("R%d", srcs.reg0); break;
@@ -45,10 +45,10 @@ static void DumpSrc(unsigned src, Srcs srcs, bool isPart0)
 		// TODO reg2 or reg3? FMA sets them the same...
 		case 2: printf("R%d", srcs.reg2); break;
 		case 3:
-				if (isPart0)
+				if (isFMA)
 					printf("0");
 				else
-					printf("T"); // i.e. the output of part0 this cycle
+					printf("T"); // i.e. the output of FMA this cycle
 				break;
 		case 4: {
 			if (srcs.uniformConst & 0x80) {
@@ -98,258 +98,258 @@ static void DumpOutputMod(unsigned mod)
 	}
 }
 
-struct Part0 {
+struct FMA {
 	uint64_t src0 : 3;
 	uint64_t src1 : 3;
 	uint64_t src2 : 3;
 	uint64_t op : 14;
 };
 
-enum Part0SrcType {
-	Part0OneSrc,
-	Part0TwoSrc,
-	Part0TwoSrcFmod,
-	Part0ThreeSrc,
-	Part0ThreeSrcFmod,
-	Part0FourSrc,
+enum FMASrcType {
+	FMAOneSrc,
+	FMATwoSrc,
+	FMATwoSrcFmod,
+	FMAThreeSrc,
+	FMAThreeSrcFmod,
+	FMAFourSrc,
 };
 
-struct Part0OpInfo {
+struct FMAOpInfo {
 	unsigned op;
 	char name[20];
-	Part0SrcType srcType;
+	FMASrcType srcType;
 };
 
-static const Part0OpInfo part0OpInfos[] = {
-	{ 0x0000, "FMA",  Part0ThreeSrcFmod },
-	{ 0x1000, "FMAX", Part0TwoSrcFmod },
-	{ 0x1100, "FMIN", Part0TwoSrcFmod },
-	{ 0x13fe, "ADD", Part0TwoSrc },
-	{ 0x13ff, "SUB", Part0TwoSrc },
-	{ 0x1600, "FADD", Part0TwoSrcFmod },
-	{ 0x1700, "CSEL.FEQ", Part0FourSrc },
-	{ 0x1708, "CSEL.FGT", Part0FourSrc },
-	{ 0x1710, "CSEL.FGE", Part0FourSrc },
-	{ 0x1718, "CSEL.IEQ", Part0FourSrc },
-	{ 0x1720, "CSEL.IGT", Part0FourSrc },
-	{ 0x1728, "CSEL.IGE", Part0FourSrc },
-	{ 0x1730, "CSEL.UGT", Part0FourSrc },
-	{ 0x1738, "CSEL.UGE", Part0FourSrc },
-	{ 0x1808, "RSHIFT_NAND", Part0ThreeSrc },
-	{ 0x1838, "RSHIFT_OR", Part0ThreeSrc },
-	{ 0x1848, "RSHIFT_AND", Part0ThreeSrc },
-	{ 0x1878, "RSHIFT_NOR", Part0ThreeSrc }, // ~((src0 << src2) | src1)
-	{ 0x1888, "LSHIFT_NAND", Part0ThreeSrc },
-	{ 0x18b8, "LSHIFT_OR",  Part0ThreeSrc }, // (src0 << src2) | src1
-	{ 0x18c8, "LSHIFT_AND", Part0ThreeSrc }, // (src0 << src2) & src1
-	{ 0x18f8, "LSHIFT_NOR", Part0ThreeSrc },
-	{ 0x1908, "RSHIFT_XOR", Part0ThreeSrc },
-	{ 0x1918, "RSHIFT_XNOR", Part0ThreeSrc }, // ~((src0 >> src2) ^ src1)
-	{ 0x1928, "LSHIFT_XOR", Part0ThreeSrc },
-	{ 0x1938, "LSHIFT_XNOR", Part0ThreeSrc }, // ~((src0 >> src2) ^ src1)
-	{ 0x1948, "LSHIFT_ADD", Part0ThreeSrc },
-	{ 0x1958, "LSHIFT_SUB", Part0ThreeSrc }, // (src0 << src2) - src1
-	{ 0x1968, "LSHIFT_RSUB", Part0ThreeSrc }, // src1 - (src0 << src2)
-	{ 0x1978, "RSHIFT_ADD", Part0ThreeSrc },
-	{ 0x1988, "RSHIFT_SUB", Part0ThreeSrc },
-	{ 0x1998, "RSHIFT_RSUB", Part0ThreeSrc },
-	{ 0x19a8, "ARSHIFT_ADD", Part0ThreeSrc },
-	{ 0x19b8, "ARSHIFT_SUB", Part0ThreeSrc },
-	{ 0x19c8, "ARSHIFT_RSUB", Part0ThreeSrc },
-	{ 0x380c, "MOV",  Part0OneSrc },
-	{ 0x382e, "IMAX", Part0TwoSrc },
-	{ 0x382f, "UMAX", Part0TwoSrc },
-	{ 0x3830, "IMIN", Part0TwoSrc },
-	{ 0x3831, "UMIN", Part0TwoSrc },
-	{ 0x383d, "CSEL", Part0ThreeSrc }, // src2 != 0 ? src1 : src0
-	{ 0x39e0, "IMAD", Part0ThreeSrc },
-	{ 0x39e3, "POPCNT", Part0OneSrc },
+static const FMAOpInfo FMAOpInfos[] = {
+	{ 0x0000, "FMA",  FMAThreeSrcFmod },
+	{ 0x1000, "FMAX", FMATwoSrcFmod },
+	{ 0x1100, "FMIN", FMATwoSrcFmod },
+	{ 0x13fe, "ADD", FMATwoSrc },
+	{ 0x13ff, "SUB", FMATwoSrc },
+	{ 0x1600, "FADD", FMATwoSrcFmod },
+	{ 0x1700, "CSEL.FEQ", FMAFourSrc },
+	{ 0x1708, "CSEL.FGT", FMAFourSrc },
+	{ 0x1710, "CSEL.FGE", FMAFourSrc },
+	{ 0x1718, "CSEL.IEQ", FMAFourSrc },
+	{ 0x1720, "CSEL.IGT", FMAFourSrc },
+	{ 0x1728, "CSEL.IGE", FMAFourSrc },
+	{ 0x1730, "CSEL.UGT", FMAFourSrc },
+	{ 0x1738, "CSEL.UGE", FMAFourSrc },
+	{ 0x1808, "RSHIFT_NAND", FMAThreeSrc },
+	{ 0x1838, "RSHIFT_OR", FMAThreeSrc },
+	{ 0x1848, "RSHIFT_AND", FMAThreeSrc },
+	{ 0x1878, "RSHIFT_NOR", FMAThreeSrc }, // ~((src0 << src2) | src1)
+	{ 0x1888, "LSHIFT_NAND", FMAThreeSrc },
+	{ 0x18b8, "LSHIFT_OR",  FMAThreeSrc }, // (src0 << src2) | src1
+	{ 0x18c8, "LSHIFT_AND", FMAThreeSrc }, // (src0 << src2) & src1
+	{ 0x18f8, "LSHIFT_NOR", FMAThreeSrc },
+	{ 0x1908, "RSHIFT_XOR", FMAThreeSrc },
+	{ 0x1918, "RSHIFT_XNOR", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
+	{ 0x1928, "LSHIFT_XOR", FMAThreeSrc },
+	{ 0x1938, "LSHIFT_XNOR", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
+	{ 0x1948, "LSHIFT_ADD", FMAThreeSrc },
+	{ 0x1958, "LSHIFT_SUB", FMAThreeSrc }, // (src0 << src2) - src1
+	{ 0x1968, "LSHIFT_RSUB", FMAThreeSrc }, // src1 - (src0 << src2)
+	{ 0x1978, "RSHIFT_ADD", FMAThreeSrc },
+	{ 0x1988, "RSHIFT_SUB", FMAThreeSrc },
+	{ 0x1998, "RSHIFT_RSUB", FMAThreeSrc },
+	{ 0x19a8, "ARSHIFT_ADD", FMAThreeSrc },
+	{ 0x19b8, "ARSHIFT_SUB", FMAThreeSrc },
+	{ 0x19c8, "ARSHIFT_RSUB", FMAThreeSrc },
+	{ 0x380c, "MOV",  FMAOneSrc },
+	{ 0x382e, "IMAX", FMATwoSrc },
+	{ 0x382f, "UMAX", FMATwoSrc },
+	{ 0x3830, "IMIN", FMATwoSrc },
+	{ 0x3831, "UMIN", FMATwoSrc },
+	{ 0x383d, "CSEL", FMAThreeSrc }, // src2 != 0 ? src1 : src0
+	{ 0x39e0, "IMAD", FMAThreeSrc },
+	{ 0x39e3, "POPCNT", FMAOneSrc },
 };
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
-static Part0OpInfo findPart0OpInfo(unsigned op)
+static FMAOpInfo findFMAOpInfo(unsigned op)
 {
-	for (int i = 0; i < ARRAY_SIZE(part0OpInfos); i++) {
+	for (int i = 0; i < ARRAY_SIZE(FMAOpInfos); i++) {
 		unsigned opCmp;
-		switch (part0OpInfos[i].srcType) {
-			case Part0OneSrc:
-			case Part0TwoSrc:
-			case Part0ThreeSrc:
+		switch (FMAOpInfos[i].srcType) {
+			case FMAOneSrc:
+			case FMATwoSrc:
+			case FMAThreeSrc:
 				opCmp = op;
 				break;
-			case Part0TwoSrcFmod:
+			case FMATwoSrcFmod:
 				opCmp = op & ~0xff;
 				break;
-			case Part0ThreeSrcFmod:
+			case FMAThreeSrcFmod:
 				opCmp = op & ~0xfff;
 				break;
-			case Part0FourSrc:
+			case FMAFourSrc:
 				opCmp = op & ~0x7;
 				break;
 		}
-		if (part0OpInfos[i].op == opCmp)
-			return part0OpInfos[i];
+		if (FMAOpInfos[i].op == opCmp)
+			return FMAOpInfos[i];
 	}
 
-	Part0OpInfo info;
+	FMAOpInfo info;
 	snprintf(info.name, sizeof(info.name), "op%04x", op);
 	info.op = op;
-	info.srcType = Part0ThreeSrc;
+	info.srcType = FMAThreeSrc;
 	return info;
 }
 
-static void DumpPart0(uint64_t word, Srcs srcs)
+static void DumpFMA(uint64_t word, Srcs srcs)
 {
-	printf("# part0: %016" PRIx64 "\n", word);
-	Part0 part0;
-	memcpy((char *) &part0, (char *) &word, sizeof(part0));
-	Part0OpInfo info = findPart0OpInfo(part0.op);
+	printf("# FMA: %016" PRIx64 "\n", word);
+	FMA FMA;
+	memcpy((char *) &FMA, (char *) &word, sizeof(FMA));
+	FMAOpInfo info = findFMAOpInfo(FMA.op);
 
 	printf("%s", info.name);
-	if (info.srcType == Part0TwoSrcFmod ||
-		info.srcType == Part0ThreeSrcFmod) {
+	if (info.srcType == FMATwoSrcFmod ||
+		info.srcType == FMAThreeSrcFmod) {
 		// output modifiers
-		DumpOutputMod(bits(part0.op, 6, 8));
+		DumpOutputMod(bits(FMA.op, 6, 8));
 	}
 	printf(" ");
 	printf("T0, ");
 	// TODO figure out dest
 	switch (info.srcType) {
-		case Part0OneSrc:
-			DumpSrc(part0.src0, srcs, true);
+		case FMAOneSrc:
+			DumpSrc(FMA.src0, srcs, true);
 			break;
-		case Part0TwoSrc:
-			DumpSrc(part0.src0, srcs, true);
+		case FMATwoSrc:
+			DumpSrc(FMA.src0, srcs, true);
 			printf(", ");
-			DumpSrc(part0.src1, srcs, true);
+			DumpSrc(FMA.src1, srcs, true);
 			break;
-		case Part0TwoSrcFmod:
-			if (part0.src2 & 0x2)
+		case FMATwoSrcFmod:
+			if (FMA.src2 & 0x2)
 				printf("-");
-			DumpSrc(part0.src0, srcs, true);
+			DumpSrc(FMA.src0, srcs, true);
 			printf(", ");
-			if (part0.src2 & 0x4)
+			if (FMA.src2 & 0x4)
 				printf("-");
-			DumpSrc(part0.src1, srcs, true);
+			DumpSrc(FMA.src1, srcs, true);
 			break;
-		case Part0ThreeSrc:
-			DumpSrc(part0.src0, srcs, true);
+		case FMAThreeSrc:
+			DumpSrc(FMA.src0, srcs, true);
 			printf(", ");
-			DumpSrc(part0.src1, srcs, true);
+			DumpSrc(FMA.src1, srcs, true);
 			printf(", ");
-			DumpSrc(part0.src2, srcs, true);
+			DumpSrc(FMA.src2, srcs, true);
 			break;
-		case Part0ThreeSrcFmod:
-			if (part0.op & (1 << 8))
+		case FMAThreeSrcFmod:
+			if (FMA.op & (1 << 8))
 				printf("-");
-			DumpSrc(part0.src0, srcs, true);
+			DumpSrc(FMA.src0, srcs, true);
 			printf(", ");
-			DumpSrc(part0.src1, srcs, true);
+			DumpSrc(FMA.src1, srcs, true);
 			printf(", ");
-			if (part0.op & (1 << 9))
+			if (FMA.op & (1 << 9))
 				printf("-");
-			DumpSrc(part0.src2, srcs, true);
+			DumpSrc(FMA.src2, srcs, true);
 			break;
-		case Part0FourSrc:
-			DumpSrc(part0.src0, srcs, true);
+		case FMAFourSrc:
+			DumpSrc(FMA.src0, srcs, true);
 			printf(", ");
-			DumpSrc(part0.src1, srcs, true);
+			DumpSrc(FMA.src1, srcs, true);
 			printf(", ");
-			DumpSrc(part0.src2, srcs, true);
+			DumpSrc(FMA.src2, srcs, true);
 			printf(", ");
-			DumpSrc(part0.op & 0x7, srcs, true);
+			DumpSrc(FMA.op & 0x7, srcs, true);
 			break;
 	}
 	printf("\n");
 }
 
-struct Part1 {
+struct ADD {
 	uint64_t src0 : 3;
 	uint64_t src1 : 3;
 	uint64_t op : 14;
 };
 
-enum Part1SrcType {
-	Part1OneSrc,
-	Part1TwoSrc,
-	Part1TwoSrcFmod,
+enum ADDSrcType {
+	ADDOneSrc,
+	ADDTwoSrc,
+	ADDTwoSrcFmod,
 };
 
-struct Part1OpInfo {
+struct ADDOpInfo {
 	unsigned op;
 	char name[10];
-	Part1SrcType srcType;
+	ADDSrcType srcType;
 };
 
-static const Part1OpInfo part1OpInfos[] = {
-	{ 0x0000, "FMAX", Part1TwoSrcFmod },
-	{ 0x0400, "FMIN", Part1TwoSrcFmod },
-	{ 0x0800, "FADD", Part1TwoSrcFmod },
-	{ 0x0f65, "MOV",  Part1OneSrc },
-	{ 0x2f18, "ADD",  Part1TwoSrc },
-	{ 0x2f58, "SUB",  Part1TwoSrc },
-	{ 0x3ba3, "OR",  Part1TwoSrc },
-	{ 0x3bac, "LSHIFT", Part1TwoSrc },
-	{ 0x3ba4, "AND",  Part1TwoSrc },
-	{ 0x3baa, "XOR",  Part1TwoSrc },
+static const ADDOpInfo ADDOpInfos[] = {
+	{ 0x0000, "FMAX", ADDTwoSrcFmod },
+	{ 0x0400, "FMIN", ADDTwoSrcFmod },
+	{ 0x0800, "FADD", ADDTwoSrcFmod },
+	{ 0x0f65, "MOV",  ADDOneSrc },
+	{ 0x2f18, "ADD",  ADDTwoSrc },
+	{ 0x2f58, "SUB",  ADDTwoSrc },
+	{ 0x3ba3, "OR",  ADDTwoSrc },
+	{ 0x3bac, "LSHIFT", ADDTwoSrc },
+	{ 0x3ba4, "AND",  ADDTwoSrc },
+	{ 0x3baa, "XOR",  ADDTwoSrc },
 };
 
-static Part1OpInfo findPart1OpInfo(unsigned op)
+static ADDOpInfo findADDOpInfo(unsigned op)
 {
-	for (int i = 0; i < ARRAY_SIZE(part1OpInfos); i++) {
+	for (int i = 0; i < ARRAY_SIZE(ADDOpInfos); i++) {
 		unsigned opCmp;
-		switch (part1OpInfos[i].srcType) {
-			case Part1OneSrc:
-			case Part1TwoSrc:
+		switch (ADDOpInfos[i].srcType) {
+			case ADDOneSrc:
+			case ADDTwoSrc:
 				opCmp = op;
 				break;
-			case Part1TwoSrcFmod:
+			case ADDTwoSrcFmod:
 				opCmp = op & ~0x7f;
 				break;
 		}
-		if (part1OpInfos[i].op == opCmp)
-			return part1OpInfos[i];
+		if (ADDOpInfos[i].op == opCmp)
+			return ADDOpInfos[i];
 	}
 
-	Part1OpInfo info;
+	ADDOpInfo info;
 	snprintf(info.name, sizeof(info.name), "op%04x", op);
 	info.op = op;
-	info.srcType = Part1TwoSrc;
+	info.srcType = ADDTwoSrc;
 	return info;
 }
 
-static void DumpPart1(uint64_t word, Srcs srcs)
+static void DumpADD(uint64_t word, Srcs srcs)
 {
-	printf("# part1: %016" PRIx64 "\n", word);
-	Part1 part1;
-	memcpy((char *) &part1, (char *) &word, sizeof(part1));
-	Part1OpInfo info = findPart1OpInfo(part1.op);
+	printf("# ADD: %016" PRIx64 "\n", word);
+	ADD ADD;
+	memcpy((char *) &ADD, (char *) &word, sizeof(ADD));
+	ADDOpInfo info = findADDOpInfo(ADD.op);
 
 	printf("%s", info.name);
-	if (info.srcType == Part1TwoSrcFmod) {
+	if (info.srcType == ADDTwoSrcFmod) {
 		// output modifiers
-		DumpOutputMod(bits(part1.op, 5, 7));
+		DumpOutputMod(bits(ADD.op, 5, 7));
 	}
 	printf(" ");
 	printf("T1, ");
 	switch (info.srcType) {
-		case Part1OneSrc:
-			DumpSrc(part1.src0, srcs, false);
+		case ADDOneSrc:
+			DumpSrc(ADD.src0, srcs, false);
 			break;
-		case Part1TwoSrc:
-			DumpSrc(part1.src0, srcs, false);
+		case ADDTwoSrc:
+			DumpSrc(ADD.src0, srcs, false);
 			printf(", ");
-			DumpSrc(part1.src1, srcs, false);
+			DumpSrc(ADD.src1, srcs, false);
 			break;
-		case Part1TwoSrcFmod:
-			if (part1.op & 0x2)
+		case ADDTwoSrcFmod:
+			if (ADD.op & 0x2)
 				printf("-");
-			DumpSrc(part1.src0, srcs, false);
+			DumpSrc(ADD.src0, srcs, false);
 			printf(", ");
-			if (part1.op & 0x4)
+			if (ADD.op & 0x4)
 				printf("-");
-			DumpSrc(part1.src1, srcs, false);
+			DumpSrc(ADD.src1, srcs, false);
 			break;
 	}
 	printf("\n");
@@ -360,8 +360,8 @@ static void DumpPart1(uint64_t word, Srcs srcs)
 // clause, hence the need for a separate struct.
 struct AluInstr {
 	uint64_t srcBits;
-	uint64_t part0Bits;
-	uint64_t part1Bits;
+	uint64_t FMABits;
+	uint64_t ADDBits;
 };
 
 void DumpInstr(AluInstr &instr)
@@ -371,10 +371,10 @@ void DumpInstr(AluInstr &instr)
 	memcpy((char *) &srcs, (char *) &instr.srcBits, sizeof(srcs));
 	DumpSrcs(srcs);
 	instr.srcBits = 0;
-	DumpPart0(instr.part0Bits, srcs);
-	instr.part0Bits = 0;
-	DumpPart1(instr.part1Bits, srcs);
-	instr.part1Bits = 0;
+	DumpFMA(instr.FMABits, srcs);
+	instr.FMABits = 0;
+	DumpADD(instr.ADDBits, srcs);
+	instr.ADDBits = 0;
 }
 
 void DumpClause(uint32_t *words, uint32_t size)
@@ -390,24 +390,24 @@ void DumpClause(uint32_t *words, uint32_t size)
 		unsigned tag = bits(words[0], 3, 8);
 
 		if (tag & 0x10) {
-			instrs[0].part1Bits |= bits(words[1], 3, 6) << 17;
-			instrs[1].part1Bits = bits(words[3], 0, 17) | (bits(words[0], 0, 3) << 17);
-			instrs[1].part0Bits |= bits(words[2], 19, 32) << 10;
+			instrs[0].ADDBits |= bits(words[1], 3, 6) << 17;
+			instrs[1].ADDBits = bits(words[3], 0, 17) | (bits(words[0], 0, 3) << 17);
+			instrs[1].FMABits |= bits(words[2], 19, 32) << 10;
 			DumpInstr(instrs[1]);
 		} else {
-			instrs[0].part1Bits |= bits(words[0], 0, 3) << 17;
+			instrs[0].ADDBits |= bits(words[0], 0, 3) << 17;
 		}
 
 		switch (tag) {
 			case 0x4:
 			case 0xC:
-				instrs[1].part0Bits |= bits(words[3], 22, 32);
+				instrs[1].FMABits |= bits(words[3], 22, 32);
 				instrs[1].srcBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
 				break;
 			case 0x0:
 			case 0x8:
-				instrs[1].part1Bits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
-				instrs[1].part0Bits |= bits(words[2], 19, 32) << 10;
+				instrs[1].ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
+				instrs[1].FMABits |= bits(words[2], 19, 32) << 10;
 				DumpInstr(instrs[1]);
 				break;
 			case 0xe:
@@ -427,9 +427,9 @@ void DumpClause(uint32_t *words, uint32_t size)
 				//break;
 			default:
 				// 20 bits
-				instrs[0].part1Bits |= bits(words[2], 2, 32 - 13);
+				instrs[0].ADDBits |= bits(words[2], 2, 32 - 13);
 				// 23 bits
-				instrs[0].part0Bits = bits(words[1], 11, 32) | bits(words[2], 0, 2) << (32 - 11);
+				instrs[0].FMABits = bits(words[1], 11, 32) | bits(words[2], 0, 2) << (32 - 11);
 				// 35 bits
 				instrs[0].srcBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
 				DumpInstr(instrs[0]);
