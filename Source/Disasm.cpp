@@ -101,14 +101,14 @@ static void DumpOutputMod(unsigned mod)
 struct FMA {
 	uint64_t src0 : 3;
 	uint64_t src1 : 3;
-	uint64_t src2 : 3;
-	uint64_t op : 14;
+	uint64_t op : 17;
 };
 
 enum FMASrcType {
 	FMAOneSrc,
 	FMATwoSrc,
 	FMATwoSrcFmod,
+	FMAFcmp,
 	FMAThreeSrc,
 	FMAThreeSrcFmod,
 	FMAFourSrc,
@@ -122,48 +122,60 @@ struct FMAOpInfo {
 
 static const FMAOpInfo FMAOpInfos[] = {
 	{ 0x0000, "FMA",  FMAThreeSrcFmod },
-	{ 0x1000, "FMAX", FMATwoSrcFmod },
-	{ 0x1100, "FMIN", FMATwoSrcFmod },
-	{ 0x13fe, "ADD", FMATwoSrc },
-	{ 0x13ff, "SUB", FMATwoSrc },
-	{ 0x1600, "FADD", FMATwoSrcFmod },
-	{ 0x1700, "CSEL.FEQ", FMAFourSrc },
-	{ 0x1708, "CSEL.FGT", FMAFourSrc },
-	{ 0x1710, "CSEL.FGE", FMAFourSrc },
-	{ 0x1718, "CSEL.IEQ", FMAFourSrc },
-	{ 0x1720, "CSEL.IGT", FMAFourSrc },
-	{ 0x1728, "CSEL.IGE", FMAFourSrc },
-	{ 0x1730, "CSEL.UGT", FMAFourSrc },
-	{ 0x1738, "CSEL.UGE", FMAFourSrc },
-	{ 0x1808, "RSHIFT_NAND", FMAThreeSrc },
-	{ 0x1838, "RSHIFT_OR", FMAThreeSrc },
-	{ 0x1848, "RSHIFT_AND", FMAThreeSrc },
-	{ 0x1878, "RSHIFT_NOR", FMAThreeSrc }, // ~((src0 << src2) | src1)
-	{ 0x1888, "LSHIFT_NAND", FMAThreeSrc },
-	{ 0x18b8, "LSHIFT_OR",  FMAThreeSrc }, // (src0 << src2) | src1
-	{ 0x18c8, "LSHIFT_AND", FMAThreeSrc }, // (src0 << src2) & src1
-	{ 0x18f8, "LSHIFT_NOR", FMAThreeSrc },
-	{ 0x1908, "RSHIFT_XOR", FMAThreeSrc },
-	{ 0x1918, "RSHIFT_XNOR", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
-	{ 0x1928, "LSHIFT_XOR", FMAThreeSrc },
-	{ 0x1938, "LSHIFT_XNOR", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
-	{ 0x1948, "LSHIFT_ADD", FMAThreeSrc },
-	{ 0x1958, "LSHIFT_SUB", FMAThreeSrc }, // (src0 << src2) - src1
-	{ 0x1968, "LSHIFT_RSUB", FMAThreeSrc }, // src1 - (src0 << src2)
-	{ 0x1978, "RSHIFT_ADD", FMAThreeSrc },
-	{ 0x1988, "RSHIFT_SUB", FMAThreeSrc },
-	{ 0x1998, "RSHIFT_RSUB", FMAThreeSrc },
-	{ 0x19a8, "ARSHIFT_ADD", FMAThreeSrc },
-	{ 0x19b8, "ARSHIFT_SUB", FMAThreeSrc },
-	{ 0x19c8, "ARSHIFT_RSUB", FMAThreeSrc },
-	{ 0x380c, "MOV",  FMAOneSrc },
-	{ 0x382e, "IMAX", FMATwoSrc },
-	{ 0x382f, "UMAX", FMATwoSrc },
-	{ 0x3830, "IMIN", FMATwoSrc },
-	{ 0x3831, "UMIN", FMATwoSrc },
-	{ 0x383d, "CSEL", FMAThreeSrc }, // src2 != 0 ? src1 : src0
-	{ 0x39e0, "IMAD", FMAThreeSrc },
-	{ 0x39e3, "POPCNT", FMAOneSrc },
+	{ 0x8000, "FMAX", FMATwoSrcFmod },
+	{ 0x8800, "FMIN", FMATwoSrcFmod },
+	{ 0x9000, "FCMP.GL", FMAFcmp },
+	{ 0x9800, "FCMP.D3D", FMAFcmp },
+	{ 0x9ff3, "ADD", FMATwoSrc },
+	{ 0x9ffb, "SUB", FMATwoSrc },
+	{ 0xb000, "FADD", FMATwoSrcFmod },
+	{ 0xb800, "CSEL.FEQ", FMAFourSrc },
+	{ 0xb840, "CSEL.FGT", FMAFourSrc },
+	{ 0xb880, "CSEL.FGE", FMAFourSrc },
+	{ 0xb8c0, "CSEL.IEQ", FMAFourSrc },
+	{ 0xb900, "CSEL.IGT", FMAFourSrc },
+	{ 0xb940, "CSEL.IGE", FMAFourSrc },
+	{ 0xb980, "CSEL.UGT", FMAFourSrc },
+	{ 0xb9c0, "CSEL.UGE", FMAFourSrc },
+	{ 0xbbc8, "ICMP.GL.GT", FMATwoSrc }, // src0 > src1 ? 1 : 0
+	{ 0xbbc9, "ICMP.GL.GE", FMATwoSrc },
+	{ 0xbbca, "UCMP.GL.GT", FMATwoSrc },
+	{ 0xbbcb, "UCMP.GL.GE", FMATwoSrc },
+	{ 0xbbcc, "ICMP.GL.EQ", FMATwoSrc },
+	{ 0xbbd8, "ICMP.D3D.GT", FMATwoSrc }, // src0 > src1 ? ~0 : 0
+	{ 0xbbd9, "ICMP.D3D.GE", FMATwoSrc },
+	{ 0xbbda, "UCMP.D3D.GT", FMATwoSrc },
+	{ 0xbbdb, "UCMP.D3D.GE", FMATwoSrc },
+	{ 0xbbdc, "ICMP.D3D.EQ", FMATwoSrc },
+	{ 0xc040, "RSHIFT_NAND", FMAThreeSrc },
+	{ 0xc1c0, "RSHIFT_OR", FMAThreeSrc },
+	{ 0xc240, "RSHIFT_AND", FMAThreeSrc },
+	{ 0xc3c0, "RSHIFT_NOR", FMAThreeSrc }, // ~((src0 << src2) | src1)
+	{ 0xc440, "LSHIFT_NAND", FMAThreeSrc },
+	{ 0xc5c0, "LSHIFT_OR",  FMAThreeSrc }, // (src0 << src2) | src1
+	{ 0xc640, "LSHIFT_AND", FMAThreeSrc }, // (src0 << src2) & src1
+	{ 0xc7c0, "LSHIFT_NOR", FMAThreeSrc },
+	{ 0xc840, "RSHIFT_XOR", FMAThreeSrc },
+	{ 0xc8c0, "RSHIFT_XNOR", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
+	{ 0xc940, "LSHIFT_XOR", FMAThreeSrc },
+	{ 0xc9c0, "LSHIFT_XNOR", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
+	{ 0xca40, "LSHIFT_ADD", FMAThreeSrc },
+	{ 0xcac0, "LSHIFT_SUB", FMAThreeSrc }, // (src0 << src2) - src1
+	{ 0xcb40, "LSHIFT_RSUB", FMAThreeSrc }, // src1 - (src0 << src2)
+	{ 0xcbc0, "RSHIFT_ADD", FMAThreeSrc },
+	{ 0xcc40, "RSHIFT_SUB", FMAThreeSrc },
+	{ 0xccc0, "RSHIFT_RSUB", FMAThreeSrc },
+	{ 0xcd40, "ARSHIFT_ADD", FMAThreeSrc },
+	{ 0xcdc0, "ARSHIFT_SUB", FMAThreeSrc },
+	{ 0xce40, "ARSHIFT_RSUB", FMAThreeSrc },
+	{ 0x1c065, "MOV",  FMAOneSrc },
+	{ 0x1c170, "IMAX", FMATwoSrc },
+	{ 0x1c178, "UMAX", FMATwoSrc },
+	{ 0x1c180, "IMIN", FMATwoSrc },
+	{ 0x1c188, "UMIN", FMATwoSrc },
+	{ 0x1c1e8, "CSEL", FMAThreeSrc }, // src2 != 0 ? src1 : src0
+	{ 0x1cf00, "IMAD", FMAThreeSrc },
+	{ 0x1cf1b, "POPCNT", FMAOneSrc },
 };
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
@@ -175,17 +187,22 @@ static FMAOpInfo findFMAOpInfo(unsigned op)
 		switch (FMAOpInfos[i].srcType) {
 			case FMAOneSrc:
 			case FMATwoSrc:
-			case FMAThreeSrc:
 				opCmp = op;
 				break;
+			case FMAFcmp:
+				opCmp = op & ~0x3ff;
+				break;
+			case FMAThreeSrc:
+				opCmp = op & ~0b111;
+				break;
 			case FMATwoSrcFmod:
-				opCmp = op & ~0xff;
+				opCmp = op & ~0x7ff;
 				break;
 			case FMAThreeSrcFmod:
-				opCmp = op & ~0xfff;
+				opCmp = op & ~0x7fff;
 				break;
 			case FMAFourSrc:
-				opCmp = op & ~0x7;
+				opCmp = op & ~0b111111;
 				break;
 		}
 		if (FMAOpInfos[i].op == opCmp)
@@ -199,6 +216,33 @@ static FMAOpInfo findFMAOpInfo(unsigned op)
 	return info;
 }
 
+static void DumpFCMP(unsigned op)
+{
+		switch (op) {
+			case 0:
+				printf(".OEQ");
+				break;
+			case 1:
+				printf(".OGT");
+				break;
+			case 2:
+				printf(".OGE");
+				break;
+			case 3:
+				printf(".UNE");
+				break;
+			case 4:
+				printf(".OLT");
+				break;
+			case 5:
+				printf(".OLE");
+				break;
+			default:
+				printf(".unk%d", op);
+				break;
+		}
+}
+
 static void DumpFMA(uint64_t word, Srcs srcs)
 {
 	printf("# FMA: %016" PRIx64 "\n", word);
@@ -210,8 +254,11 @@ static void DumpFMA(uint64_t word, Srcs srcs)
 	if (info.srcType == FMATwoSrcFmod ||
 		info.srcType == FMAThreeSrcFmod) {
 		// output modifiers
-		DumpOutputMod(bits(FMA.op, 6, 8));
+		DumpOutputMod(bits(FMA.op, 9, 11));
+	} else if (info.srcType == FMAFcmp) {
+		DumpFCMP(bits(FMA.op, 7, 10));
 	}
+
 	printf(" ");
 	printf("T0, ");
 	// TODO figure out dest
@@ -225,40 +272,55 @@ static void DumpFMA(uint64_t word, Srcs srcs)
 			DumpSrc(FMA.src1, srcs, true);
 			break;
 		case FMATwoSrcFmod:
-			if (FMA.src2 & 0x2)
+			if (FMA.op & 0x2)
 				printf("-");
 			DumpSrc(FMA.src0, srcs, true);
 			printf(", ");
-			if (FMA.src2 & 0x4)
+			if (FMA.op & 0x4)
 				printf("-");
 			DumpSrc(FMA.src1, srcs, true);
+			break;
+		case FMAFcmp:
+			if (FMA.op & 0x40)
+				printf("abs(");
+			DumpSrc(FMA.src0, srcs, true);
+			if (FMA.op & 0x40)
+				printf(")");
+			printf(", ");
+			if (FMA.op & 0x4)
+				printf("-");
+			if (FMA.op & 0x1)
+				printf("abs(");
+			DumpSrc(FMA.src1, srcs, true);
+			if (FMA.op & 0x1)
+				printf(")");
 			break;
 		case FMAThreeSrc:
 			DumpSrc(FMA.src0, srcs, true);
 			printf(", ");
 			DumpSrc(FMA.src1, srcs, true);
 			printf(", ");
-			DumpSrc(FMA.src2, srcs, true);
+			DumpSrc(FMA.op & 0x7, srcs, true);
 			break;
 		case FMAThreeSrcFmod:
-			if (FMA.op & (1 << 8))
+			if (FMA.op & (1 << 11))
 				printf("-");
 			DumpSrc(FMA.src0, srcs, true);
 			printf(", ");
 			DumpSrc(FMA.src1, srcs, true);
 			printf(", ");
-			if (FMA.op & (1 << 9))
+			if (FMA.op & (1 << 12))
 				printf("-");
-			DumpSrc(FMA.src2, srcs, true);
+			DumpSrc(FMA.op & 0x7, srcs, true);
 			break;
 		case FMAFourSrc:
 			DumpSrc(FMA.src0, srcs, true);
 			printf(", ");
 			DumpSrc(FMA.src1, srcs, true);
 			printf(", ");
-			DumpSrc(FMA.src2, srcs, true);
-			printf(", ");
 			DumpSrc(FMA.op & 0x7, srcs, true);
+			printf(", ");
+			DumpSrc((FMA.op >> 3) & 0x7, srcs, true);
 			break;
 	}
 	printf("\n");
@@ -274,11 +336,12 @@ enum ADDSrcType {
 	ADDOneSrc,
 	ADDTwoSrc,
 	ADDTwoSrcFmod,
+	ADDFcmp,
 };
 
 struct ADDOpInfo {
 	unsigned op;
-	char name[10];
+	char name[20];
 	ADDSrcType srcType;
 };
 
@@ -286,7 +349,19 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x0000, "FMAX", ADDTwoSrcFmod },
 	{ 0x0400, "FMIN", ADDTwoSrcFmod },
 	{ 0x0800, "FADD", ADDTwoSrcFmod },
+	{ 0x0c00, "FCMP.GL", ADDFcmp },
+	{ 0x0e00, "FCMP.D3D", ADDFcmp },
 	{ 0x0f65, "MOV",  ADDOneSrc },
+	{ 0x1ec8, "ICMP.GL.GT", ADDTwoSrc }, // src0 > src1 ? 1 : 0
+	{ 0x1ec9, "ICMP.GL.GE", ADDTwoSrc },
+	{ 0x1eca, "UCMP.GL.GT", ADDTwoSrc },
+	{ 0x1ecb, "UCMP.GL.GE", ADDTwoSrc },
+	{ 0x1ecc, "ICMP.GL.EQ", ADDTwoSrc },
+	{ 0x1ed8, "ICMP.D3D.GT", ADDTwoSrc }, // src0 > src1 ? ~0 : 0
+	{ 0x1ed9, "ICMP.D3D.GE", ADDTwoSrc },
+	{ 0x1eda, "UCMP.D3D.GT", ADDTwoSrc },
+	{ 0x1edb, "UCMP.D3D.GE", ADDTwoSrc },
+	{ 0x1edc, "ICMP.D3D.EQ", ADDTwoSrc },
 	{ 0x2f18, "ADD",  ADDTwoSrc },
 	{ 0x2f58, "SUB",  ADDTwoSrc },
 	{ 0x3ba3, "OR",  ADDTwoSrc },
@@ -306,6 +381,9 @@ static ADDOpInfo findADDOpInfo(unsigned op)
 				break;
 			case ADDTwoSrcFmod:
 				opCmp = op & ~0x7f;
+				break;
+			case ADDFcmp:
+				opCmp = op & ~0xff;
 				break;
 		}
 		if (ADDOpInfos[i].op == opCmp)
@@ -330,6 +408,27 @@ static void DumpADD(uint64_t word, Srcs srcs)
 	if (info.srcType == ADDTwoSrcFmod) {
 		// output modifiers
 		DumpOutputMod(bits(ADD.op, 5, 7));
+	} else if (info.srcType == ADDFcmp) {
+		switch (bits(ADD.op, 0, 3)) {
+			case 0:
+				printf(".OEQ");
+				break;
+			case 1:
+				printf(".OGT");
+				break;
+			case 2:
+				printf(".OGE");
+				break;
+			case 3:
+				printf(".UNE");
+				break;
+			case 4:
+				printf(".OLT");
+				break;
+			case 5:
+				printf(".OLE");
+				break;
+		}
 	}
 	printf(" ");
 	printf("T1, ");
@@ -351,6 +450,25 @@ static void DumpADD(uint64_t word, Srcs srcs)
 				printf("-");
 			DumpSrc(ADD.src1, srcs, false);
 			break;
+		case ADDFcmp:
+			if (ADD.op & 0x80) {
+				printf("-");
+			}
+			if (ADD.op & 0x20) {
+				printf("abs(");
+			}
+			DumpSrc(ADD.src0, srcs, false);
+			if (ADD.op & 0x20) {
+				printf(")");
+			}
+			printf(", ");
+			if (ADD.op & 0x40) {
+				printf("abs(");
+			}
+			DumpSrc(ADD.src1, srcs, false);
+			if (ADD.op & 0x40) {
+				printf(")");
+			}
 	}
 	printf("\n");
 }
