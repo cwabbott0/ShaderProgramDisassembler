@@ -42,8 +42,7 @@ static void DumpSrc(unsigned src, Srcs srcs, bool isFMA)
 	switch (src) {
 		case 0: printf("R%d", srcs.reg0); break;
 		case 1: printf("R%d", srcs.reg1); break;
-		// TODO reg2 or reg3? FMA sets them the same...
-		case 2: printf("R%d", srcs.reg2); break;
+		case 2: printf("R%d", srcs.reg3); break;
 		case 3:
 				if (isFMA)
 					printf("0");
@@ -128,6 +127,7 @@ static const FMAOpInfo FMAOpInfos[] = {
 	{ 0x9800, "FCMP.D3D", FMAFcmp },
 	{ 0x9ff3, "ADD", FMATwoSrc },
 	{ 0x9ffb, "SUB", FMATwoSrc },
+	{ 0x9ffe, "SUBB", FMATwoSrc },
 	{ 0xb000, "FADD", FMATwoSrcFmod },
 	{ 0xb800, "CSEL.FEQ", FMAFourSrc },
 	{ 0xb840, "CSEL.FGT", FMAFourSrc },
@@ -168,6 +168,7 @@ static const FMAOpInfo FMAOpInfos[] = {
 	{ 0xcd40, "ARSHIFT_ADD", FMAThreeSrc },
 	{ 0xcdc0, "ARSHIFT_SUB", FMAThreeSrc },
 	{ 0xce40, "ARSHIFT_RSUB", FMAThreeSrc },
+	{ 0x19f82, "ADDC", FMATwoSrc },
 	{ 0x1c065, "MOV",  FMAOneSrc },
 	{ 0x1c170, "IMAX", FMATwoSrc },
 	{ 0x1c178, "UMAX", FMATwoSrc },
@@ -364,6 +365,7 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x1edc, "ICMP.D3D.EQ", ADDTwoSrc },
 	{ 0x2f18, "ADD",  ADDTwoSrc },
 	{ 0x2f58, "SUB",  ADDTwoSrc },
+	{ 0x2f82, "ADDC", ADDTwoSrc }, // adds src0 to the bottom bit of src1
 	{ 0x3ba3, "OR",  ADDTwoSrc },
 	{ 0x3bac, "LSHIFT", ADDTwoSrc },
 	{ 0x3ba4, "AND",  ADDTwoSrc },
