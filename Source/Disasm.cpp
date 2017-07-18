@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <sstream>
 #include <iomanip>
+#include <vector>
 #include <string>
 #include <string.h>
 
@@ -499,7 +500,8 @@ void DumpInstr(AluInstr &instr)
 
 void DumpClause(uint32_t *words, uint32_t size)
 {
-	AluInstr instrs[2] = { {0, 0, 0}, {0, 0, 0} };
+	AluInstr curInstrs[2] = { {}, {} };
+	std::vector<AluInstr> instrs;
 	uint64_t consts[3] = { 0, 0, 0 };
 	unsigned num_consts = 0;
 	for (unsigned i = 0; i < size; i++, words += 4) {
@@ -510,25 +512,27 @@ void DumpClause(uint32_t *words, uint32_t size)
 		unsigned tag = bits(words[0], 3, 8);
 
 		if (tag & 0x10) {
-			instrs[0].ADDBits |= bits(words[1], 3, 6) << 17;
-			instrs[1].ADDBits = bits(words[3], 0, 17) | (bits(words[0], 0, 3) << 17);
-			instrs[1].FMABits |= bits(words[2], 19, 32) << 10;
-			DumpInstr(instrs[1]);
+			curInstrs[0].ADDBits |= bits(words[1], 3, 6) << 17;
+			curInstrs[1].ADDBits = bits(words[3], 0, 17) | (bits(words[0], 0, 3) << 17);
+			curInstrs[1].FMABits |= bits(words[2], 19, 32) << 10;
+			instrs.push_back(curInstrs[1]);
+			curInstrs[1] = {};
 		} else {
-			instrs[0].ADDBits |= bits(words[0], 0, 3) << 17;
+			curInstrs[0].ADDBits |= bits(words[0], 0, 3) << 17;
 		}
 
 		switch (tag) {
 			case 0x4:
 			case 0xC:
-				instrs[1].FMABits |= bits(words[3], 22, 32);
-				instrs[1].srcBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
+				curInstrs[1].FMABits |= bits(words[3], 22, 32);
+				curInstrs[1].srcBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
 				break;
 			case 0x0:
 			case 0x8:
-				instrs[1].ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
-				instrs[1].FMABits |= bits(words[2], 19, 32) << 10;
-				DumpInstr(instrs[1]);
+				curInstrs[1].ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
+				curInstrs[1].FMABits |= bits(words[2], 19, 32) << 10;
+				instrs.push_back(curInstrs[1]);
+				curInstrs[1] = {};
 				break;
 			case 0xe:
 				consts[num_consts + 1] = bits(words[2], 4, 32) << 4 | (uint64_t) words[3] << 32;
@@ -547,14 +551,19 @@ void DumpClause(uint32_t *words, uint32_t size)
 				//break;
 			default:
 				// 20 bits
-				instrs[0].ADDBits |= bits(words[2], 2, 32 - 13);
+				curInstrs[0].ADDBits |= bits(words[2], 2, 32 - 13);
 				// 23 bits
-				instrs[0].FMABits = bits(words[1], 11, 32) | bits(words[2], 0, 2) << (32 - 11);
+				curInstrs[0].FMABits = bits(words[1], 11, 32) | bits(words[2], 0, 2) << (32 - 11);
 				// 35 bits
-				instrs[0].srcBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
-				DumpInstr(instrs[0]);
+				curInstrs[0].srcBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
+				instrs.push_back(curInstrs[0]);
+				curInstrs[0] = {};
 				break;
 		}
+	}
+
+	for (AluInstr instr : instrs) {
+		DumpInstr(instr);
 	}
 
 	for (int i = 0; i < num_consts; i++) {
