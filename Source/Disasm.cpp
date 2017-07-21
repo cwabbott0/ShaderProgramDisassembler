@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <string.h>
+#include <assert.h>
 
 // return bits (high, lo]
 static uint64_t bits(uint32_t word, unsigned lo, unsigned high)
@@ -15,22 +16,106 @@ static uint64_t bits(uint32_t word, unsigned lo, unsigned high)
 	return (word & ((1 << high) - 1)) >> lo;
 }
 
-struct Srcs {
+struct Regs {
 	uint64_t uniformConst : 8;
 	uint64_t reg2 : 6;
 	uint64_t reg3 : 6;
 	uint64_t reg0 : 5;
-	uint64_t reg1 : 5;
-	uint64_t unk1 : 5;
+	uint64_t reg1 : 6;
+	uint64_t ctrl : 4;
 };
 
-static void DumpSrcs(Srcs srcs)
+enum RegWriteUnit {
+	RegWriteNone = 0, // don't write
+	RegWrite2, // write using reg2
+	RegWrite3, // write using reg3
+};
+
+// this represents the decoded version of the ctrl register field.
+struct RegCtrl {
+	bool readReg0;
+	bool readReg1;
+	bool readReg2;
+	RegWriteUnit FMAWriteUnit;
+	RegWriteUnit ADDWriteUnit;
+	bool clauseStart;
+};
+
+static RegCtrl DecodeRegCtrl(Regs regs)
+{
+	RegCtrl decoded = {};
+	unsigned ctrl;
+	if (regs.ctrl == 0) {
+		ctrl = regs.reg1 >> 2;
+		decoded.readReg0 = !(regs.reg1 & 0x2);
+		if ((regs.reg1 & 0x1))
+			printf("# unknown regctrl bit set\n");
+		decoded.readReg1 = false;
+	} else {
+		ctrl = regs.ctrl;
+		decoded.readReg0 = decoded.readReg1 = true;
+	}
+	switch (ctrl) {
+		case 0:
+			decoded.clauseStart = true;
+			break;
+		case 1:
+			decoded.FMAWriteUnit = RegWrite3;
+			break;
+		case 3:
+			decoded.FMAWriteUnit = RegWrite3;
+			decoded.readReg2 = true;
+			break;
+		case 4:
+			decoded.readReg2 = true;
+			break;
+		case 5:
+			decoded.ADDWriteUnit = RegWrite3;
+			break;
+		case 6:
+			decoded.ADDWriteUnit = RegWrite3;
+			decoded.readReg2 = true;
+			break;
+		case 8:
+			decoded.clauseStart = true;
+			break;
+		case 11:
+			break;
+		case 12:
+			decoded.readReg2 = true;
+			break;
+		case 15:
+			decoded.FMAWriteUnit = RegWrite2;
+			decoded.ADDWriteUnit = RegWrite3;
+			break;
+		default:
+			printf("# unknown reg ctrl %d\n", ctrl);
+	}
+
+	return decoded;
+}
+
+// Pass in the ADDWriteUnit or FMAWriteUnit, and this returns which register
+// the ADD/FMA units are writing to
+static unsigned GetRegToWrite(RegWriteUnit unit, Regs regs)
+{
+	switch (unit) {
+		case RegWrite2:
+			return regs.reg2;
+		case RegWrite3:
+			return regs.reg3;
+		case RegWriteNone:
+			assert(0);
+	}
+}
+
+static void DumpRegs(Regs srcs)
 {
 	printf("reg0: R%d\n", srcs.reg0);
 	printf("reg1: R%d\n", srcs.reg1);
 	printf("reg2: R%d\n", srcs.reg2);
 	printf("reg3: R%d\n", srcs.reg3);
-	printf("unk1: R%d\n", srcs.unk1);
+	printf("ctrl: %d\n", srcs.ctrl);
 	if (srcs.uniformConst) {
 		if (srcs.uniformConst & 0x80) {
 			printf("uniform: U%d\n", (srcs.uniformConst & 0x7f) * 2);
@@ -38,7 +123,7 @@ static void DumpSrcs(Srcs srcs)
 	}
 }
 
-static void DumpSrc(unsigned src, Srcs srcs, bool isFMA)
+static void DumpSrc(unsigned src, Regs srcs, bool isFMA)
 {
 	switch (src) {
 		case 0: printf("R%d", srcs.reg0); break;
@@ -100,8 +185,7 @@ static void DumpOutputMod(unsigned mod)
 
 struct FMA {
 	uint64_t src0 : 3;
-	uint64_t src1 : 3;
-	uint64_t op : 17;
+	uint64_t op : 20;
 };
 
 enum FMASrcType {
@@ -121,63 +205,67 @@ struct FMAOpInfo {
 };
 
 static const FMAOpInfo FMAOpInfos[] = {
-	{ 0x0000, "FMA",  FMAThreeSrcFmod },
-	{ 0x8000, "FMAX", FMATwoSrcFmod },
-	{ 0x8800, "FMIN", FMATwoSrcFmod },
-	{ 0x9000, "FCMP.GL", FMAFcmp },
-	{ 0x9800, "FCMP.D3D", FMAFcmp },
-	{ 0x9ff3, "ADD", FMATwoSrc },
-	{ 0x9ffb, "SUB", FMATwoSrc },
-	{ 0x9ffe, "SUBB", FMATwoSrc },
-	{ 0xb000, "FADD", FMATwoSrcFmod },
-	{ 0xb800, "CSEL.FEQ", FMAFourSrc },
-	{ 0xb840, "CSEL.FGT", FMAFourSrc },
-	{ 0xb880, "CSEL.FGE", FMAFourSrc },
-	{ 0xb8c0, "CSEL.IEQ", FMAFourSrc },
-	{ 0xb900, "CSEL.IGT", FMAFourSrc },
-	{ 0xb940, "CSEL.IGE", FMAFourSrc },
-	{ 0xb980, "CSEL.UGT", FMAFourSrc },
-	{ 0xb9c0, "CSEL.UGE", FMAFourSrc },
-	{ 0xbbc8, "ICMP.GL.GT", FMATwoSrc }, // src0 > src1 ? 1 : 0
-	{ 0xbbc9, "ICMP.GL.GE", FMATwoSrc },
-	{ 0xbbca, "UCMP.GL.GT", FMATwoSrc },
-	{ 0xbbcb, "UCMP.GL.GE", FMATwoSrc },
-	{ 0xbbcc, "ICMP.GL.EQ", FMATwoSrc },
-	{ 0xbbd8, "ICMP.D3D.GT", FMATwoSrc }, // src0 > src1 ? ~0 : 0
-	{ 0xbbd9, "ICMP.D3D.GE", FMATwoSrc },
-	{ 0xbbda, "UCMP.D3D.GT", FMATwoSrc },
-	{ 0xbbdb, "UCMP.D3D.GE", FMATwoSrc },
-	{ 0xbbdc, "ICMP.D3D.EQ", FMATwoSrc },
-	{ 0xc040, "RSHIFT_NAND", FMAThreeSrc },
-	{ 0xc1c0, "RSHIFT_OR", FMAThreeSrc },
-	{ 0xc240, "RSHIFT_AND", FMAThreeSrc },
-	{ 0xc3c0, "RSHIFT_NOR", FMAThreeSrc }, // ~((src0 << src2) | src1)
-	{ 0xc440, "LSHIFT_NAND", FMAThreeSrc },
-	{ 0xc5c0, "LSHIFT_OR",  FMAThreeSrc }, // (src0 << src2) | src1
-	{ 0xc640, "LSHIFT_AND", FMAThreeSrc }, // (src0 << src2) & src1
-	{ 0xc7c0, "LSHIFT_NOR", FMAThreeSrc },
-	{ 0xc840, "RSHIFT_XOR", FMAThreeSrc },
-	{ 0xc8c0, "RSHIFT_XNOR", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
-	{ 0xc940, "LSHIFT_XOR", FMAThreeSrc },
-	{ 0xc9c0, "LSHIFT_XNOR", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
-	{ 0xca40, "LSHIFT_ADD", FMAThreeSrc },
-	{ 0xcac0, "LSHIFT_SUB", FMAThreeSrc }, // (src0 << src2) - src1
-	{ 0xcb40, "LSHIFT_RSUB", FMAThreeSrc }, // src1 - (src0 << src2)
-	{ 0xcbc0, "RSHIFT_ADD", FMAThreeSrc },
-	{ 0xcc40, "RSHIFT_SUB", FMAThreeSrc },
-	{ 0xccc0, "RSHIFT_RSUB", FMAThreeSrc },
-	{ 0xcd40, "ARSHIFT_ADD", FMAThreeSrc },
-	{ 0xcdc0, "ARSHIFT_SUB", FMAThreeSrc },
-	{ 0xce40, "ARSHIFT_RSUB", FMAThreeSrc },
-	{ 0x19f82, "ADDC", FMATwoSrc },
-	{ 0x1c065, "MOV",  FMAOneSrc },
-	{ 0x1c170, "IMAX", FMATwoSrc },
-	{ 0x1c178, "UMAX", FMATwoSrc },
-	{ 0x1c180, "IMIN", FMATwoSrc },
-	{ 0x1c188, "UMIN", FMATwoSrc },
-	{ 0x1c1e8, "CSEL", FMAThreeSrc }, // src2 != 0 ? src1 : src0
-	{ 0x1cf00, "IMAD", FMAThreeSrc },
-	{ 0x1cf1b, "POPCNT", FMAOneSrc },
+	{ 0x00000, "FMA",  FMAThreeSrcFmod },
+	{ 0x40000, "FMAX", FMATwoSrcFmod },
+	{ 0x44000, "FMIN", FMATwoSrcFmod },
+	{ 0x48000, "FCMP.GL", FMAFcmp },
+	{ 0x4c000, "FCMP.D3D", FMAFcmp },
+	{ 0x4ff98, "ADD", FMATwoSrc },
+	{ 0x4ffd8, "SUB", FMATwoSrc },
+	{ 0x4fff0, "SUBB", FMATwoSrc },
+	{ 0x58000, "FADD", FMATwoSrcFmod },
+	{ 0x5c000, "CSEL.FEQ", FMAFourSrc },
+	{ 0x5c200, "CSEL.FGT", FMAFourSrc },
+	{ 0x5c400, "CSEL.FGE", FMAFourSrc },
+	{ 0x5c600, "CSEL.IEQ", FMAFourSrc },
+	{ 0x5c800, "CSEL.IGT", FMAFourSrc },
+	{ 0x5ca00, "CSEL.IGE", FMAFourSrc },
+	{ 0x5cc00, "CSEL.UGT", FMAFourSrc },
+	{ 0x5ce00, "CSEL.UGE", FMAFourSrc },
+	{ 0x5de40, "ICMP.GL.GT", FMATwoSrc }, // src0 > src1 ? 1 : 0
+	{ 0x5de48, "ICMP.GL.GE", FMATwoSrc },
+	{ 0x5de50, "UCMP.GL.GT", FMATwoSrc },
+	{ 0x5de58, "UCMP.GL.GE", FMATwoSrc },
+	{ 0x5de60, "ICMP.GL.EQ", FMATwoSrc },
+	{ 0x5dec0, "ICMP.D3D.GT", FMATwoSrc }, // src0 > src1 ? ~0 : 0
+	{ 0x5dec8, "ICMP.D3D.GE", FMATwoSrc },
+	{ 0x5ded0, "UCMP.D3D.GT", FMATwoSrc },
+	{ 0x5ded8, "UCMP.D3D.GE", FMATwoSrc },
+	{ 0x5dee0, "ICMP.D3D.EQ", FMATwoSrc },
+	{ 0x60200, "RSHIFT_NAND", FMAThreeSrc },
+	{ 0x60e00, "RSHIFT_OR", FMAThreeSrc },
+	{ 0x61200, "RSHIFT_AND", FMAThreeSrc },
+	{ 0x61e00, "RSHIFT_NOR", FMAThreeSrc }, // ~((src0 << src2) | src1)
+	{ 0x62200, "LSHIFT_NAND", FMAThreeSrc },
+	{ 0x62e00, "LSHIFT_OR",  FMAThreeSrc }, // (src0 << src2) | src1
+	{ 0x63200, "LSHIFT_AND", FMAThreeSrc }, // (src0 << src2) & src1
+	{ 0x63e00, "LSHIFT_NOR", FMAThreeSrc },
+	{ 0x64200, "RSHIFT_XOR", FMAThreeSrc },
+	{ 0x64600, "RSHIFT_XNOR", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
+	{ 0x64a00, "LSHIFT_XOR", FMAThreeSrc },
+	{ 0x64e00, "LSHIFT_XNOR", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
+	{ 0x65200, "LSHIFT_ADD", FMAThreeSrc },
+	{ 0x65600, "LSHIFT_SUB", FMAThreeSrc }, // (src0 << src2) - src1
+	{ 0x65a00, "LSHIFT_RSUB", FMAThreeSrc }, // src1 - (src0 << src2)
+	{ 0x65e00, "RSHIFT_ADD", FMAThreeSrc },
+	{ 0x66200, "RSHIFT_SUB", FMAThreeSrc },
+	{ 0x66600, "RSHIFT_RSUB", FMAThreeSrc },
+	{ 0x66a00, "ARSHIFT_ADD", FMAThreeSrc },
+	{ 0x66e00, "ARSHIFT_SUB", FMAThreeSrc },
+	{ 0x67200, "ARSHIFT_RSUB", FMAThreeSrc },
+	{ 0xcfc10, "ADDC", FMATwoSrc },
+	{ 0xe0136, "F2I", FMAOneSrc },
+	{ 0xe0137, "F2U", FMAOneSrc },
+	{ 0xe0178, "I2F", FMAOneSrc },
+	{ 0xe0179, "U2F", FMAOneSrc },
+	{ 0xe032d, "MOV",  FMAOneSrc },
+	{ 0xe0b80, "IMAX", FMATwoSrc },
+	{ 0xe0bc0, "UMAX", FMATwoSrc },
+	{ 0xe0c00, "IMIN", FMATwoSrc },
+	{ 0xe0c40, "UMIN", FMATwoSrc },
+	{ 0xe0f40, "CSEL", FMAThreeSrc }, // src2 != 0 ? src1 : src0
+	{ 0xe7800, "IMAD", FMAThreeSrc },
+	{ 0xe78db, "POPCNT", FMAOneSrc },
 };
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
@@ -188,23 +276,25 @@ static FMAOpInfo findFMAOpInfo(unsigned op)
 		unsigned opCmp;
 		switch (FMAOpInfos[i].srcType) {
 			case FMAOneSrc:
-			case FMATwoSrc:
 				opCmp = op;
 				break;
+			case FMATwoSrc:
+				opCmp = op & 0x7;
+				break;
 			case FMAFcmp:
-				opCmp = op & ~0x3ff;
+				opCmp = op & ~0x1fff;
 				break;
 			case FMAThreeSrc:
-				opCmp = op & ~0b111;
+				opCmp = op & ~0x3f;
 				break;
 			case FMATwoSrcFmod:
-				opCmp = op & ~0x7ff;
+				opCmp = op & ~0x3fff;
 				break;
 			case FMAThreeSrcFmod:
-				opCmp = op & ~0x7fff;
+				opCmp = op & ~0x3ffff;
 				break;
 			case FMAFourSrc:
-				opCmp = op & ~0b111111;
+				opCmp = op & ~0x1ff;
 				break;
 		}
 		if (FMAOpInfos[i].op == opCmp)
@@ -245,7 +335,7 @@ static void DumpFCMP(unsigned op)
 		}
 }
 
-static void DumpFMA(uint64_t word, Srcs srcs)
+static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs)
 {
 	printf("# FMA: %016" PRIx64 "\n", word);
 	FMA FMA;
@@ -256,73 +346,79 @@ static void DumpFMA(uint64_t word, Srcs srcs)
 	if (info.srcType == FMATwoSrcFmod ||
 		info.srcType == FMAThreeSrcFmod) {
 		// output modifiers
-		DumpOutputMod(bits(FMA.op, 9, 11));
+		DumpOutputMod(bits(FMA.op, 12, 14));
 	} else if (info.srcType == FMAFcmp) {
-		DumpFCMP(bits(FMA.op, 7, 10));
+		DumpFCMP(bits(FMA.op, 10, 13));
 	}
 
 	printf(" ");
-	printf("T0, ");
-	// TODO figure out dest
+
+	RegCtrl nextCtrl = DecodeRegCtrl(nextRegs);
+	if (nextCtrl.FMAWriteUnit != RegWriteNone) {
+		printf("{R%d, T0}, ", GetRegToWrite(nextCtrl.FMAWriteUnit, nextRegs));
+	} else {
+		printf("T0, ");
+	}
+
 	switch (info.srcType) {
 		case FMAOneSrc:
-			DumpSrc(FMA.src0, srcs, true);
+			DumpSrc(FMA.src0, regs, true);
 			break;
 		case FMATwoSrc:
-			DumpSrc(FMA.src0, srcs, true);
+			DumpSrc(FMA.src0, regs, true);
 			printf(", ");
-			DumpSrc(FMA.src1, srcs, true);
+			DumpSrc(FMA.op & 0x7, regs, true);
 			break;
 		case FMATwoSrcFmod:
-			if (FMA.op & 0x2)
+			if (FMA.op & 0x10)
 				printf("-");
-			DumpSrc(FMA.src0, srcs, true);
+			DumpSrc(FMA.src0, regs, true);
 			printf(", ");
-			if (FMA.op & 0x4)
+			if (FMA.op & 0x20)
 				printf("-");
-			DumpSrc(FMA.src1, srcs, true);
+			DumpSrc(FMA.op & 0x7, regs, true);
 			break;
 		case FMAFcmp:
-			if (FMA.op & 0x40)
+			if (FMA.op & 0x200)
 				printf("abs(");
-			DumpSrc(FMA.src0, srcs, true);
-			if (FMA.op & 0x40)
+			DumpSrc(FMA.src0, regs, true);
+			if (FMA.op & 0x200)
 				printf(")");
 			printf(", ");
-			if (FMA.op & 0x4)
+			if (FMA.op & 0x20)
 				printf("-");
-			if (FMA.op & 0x1)
+			if (FMA.op & 0x8)
 				printf("abs(");
-			DumpSrc(FMA.src1, srcs, true);
-			if (FMA.op & 0x1)
+			DumpSrc(FMA.op & 0x7, regs, true);
+			if (FMA.op & 0x8)
 				printf(")");
 			break;
 		case FMAThreeSrc:
-			DumpSrc(FMA.src0, srcs, true);
+			DumpSrc(FMA.src0, regs, true);
 			printf(", ");
-			DumpSrc(FMA.src1, srcs, true);
+			DumpSrc(FMA.op & 0x7, regs, true);
 			printf(", ");
-			DumpSrc(FMA.op & 0x7, srcs, true);
+			DumpSrc((FMA.op >> 3) & 0x7, regs, true);
 			break;
 		case FMAThreeSrcFmod:
-			if (FMA.op & (1 << 11))
+			if (FMA.op & (1 << 14))
 				printf("-");
-			DumpSrc(FMA.src0, srcs, true);
+			DumpSrc(FMA.src0, regs, true);
 			printf(", ");
-			DumpSrc(FMA.src1, srcs, true);
+			DumpSrc(FMA.op & 0x7, regs, true);
 			printf(", ");
-			if (FMA.op & (1 << 12))
+			if (FMA.op & (1 << 15))
 				printf("-");
-			DumpSrc(FMA.op & 0x7, srcs, true);
+			DumpSrc((FMA.op >> 3) & 0x7, regs, true);
 			break;
 		case FMAFourSrc:
-			DumpSrc(FMA.src0, srcs, true);
+			DumpSrc(FMA.src0, regs, true);
 			printf(", ");
-			DumpSrc(FMA.src1, srcs, true);
+			DumpSrc(FMA.op & 0x7, regs, true);
 			printf(", ");
-			DumpSrc(FMA.op & 0x7, srcs, true);
+			DumpSrc((FMA.op >> 3) & 0x7, regs, true);
 			printf(", ");
-			DumpSrc((FMA.op >> 3) & 0x7, srcs, true);
+			DumpSrc((FMA.op >> 6) & 0x7, regs, true);
 			break;
 	}
 	printf("\n");
@@ -400,7 +496,7 @@ static ADDOpInfo findADDOpInfo(unsigned op)
 	return info;
 }
 
-static void DumpADD(uint64_t word, Srcs srcs)
+static void DumpADD(uint64_t word, Regs regs, Regs nextRegs)
 {
 	printf("# ADD: %016" PRIx64 "\n", word);
 	ADD ADD;
@@ -434,24 +530,31 @@ static void DumpADD(uint64_t word, Srcs srcs)
 		}
 	}
 	printf(" ");
-	printf("T1, ");
+
+	RegCtrl nextCtrl = DecodeRegCtrl(nextRegs);
+	if (nextCtrl.ADDWriteUnit != RegWriteNone) {
+		printf("{R%d, T1}, ", GetRegToWrite(nextCtrl.ADDWriteUnit, nextRegs));
+	} else {
+		printf("T1, ");
+	}
+
 	switch (info.srcType) {
 		case ADDOneSrc:
-			DumpSrc(ADD.src0, srcs, false);
+			DumpSrc(ADD.src0, regs, false);
 			break;
 		case ADDTwoSrc:
-			DumpSrc(ADD.src0, srcs, false);
+			DumpSrc(ADD.src0, regs, false);
 			printf(", ");
-			DumpSrc(ADD.src1, srcs, false);
+			DumpSrc(ADD.src1, regs, false);
 			break;
 		case ADDTwoSrcFmod:
 			if (ADD.op & 0x2)
 				printf("-");
-			DumpSrc(ADD.src0, srcs, false);
+			DumpSrc(ADD.src0, regs, false);
 			printf(", ");
 			if (ADD.op & 0x4)
 				printf("-");
-			DumpSrc(ADD.src1, srcs, false);
+			DumpSrc(ADD.src1, regs, false);
 			break;
 		case ADDFcmp:
 			if (ADD.op & 0x80) {
@@ -460,7 +563,7 @@ static void DumpADD(uint64_t word, Srcs srcs)
 			if (ADD.op & 0x20) {
 				printf("abs(");
 			}
-			DumpSrc(ADD.src0, srcs, false);
+			DumpSrc(ADD.src0, regs, false);
 			if (ADD.op & 0x20) {
 				printf(")");
 			}
@@ -468,7 +571,7 @@ static void DumpADD(uint64_t word, Srcs srcs)
 			if (ADD.op & 0x40) {
 				printf("abs(");
 			}
-			DumpSrc(ADD.src1, srcs, false);
+			DumpSrc(ADD.src1, regs, false);
 			if (ADD.op & 0x40) {
 				printf(")");
 			}
@@ -480,22 +583,19 @@ static void DumpADD(uint64_t word, Srcs srcs)
 // cycle. Note that these instructions are packed in funny ways within the
 // clause, hence the need for a separate struct.
 struct AluInstr {
-	uint64_t srcBits;
+	uint64_t regBits;
 	uint64_t FMABits;
 	uint64_t ADDBits;
 };
 
-void DumpInstr(AluInstr &instr)
+void DumpInstr(const AluInstr &instr, Regs nextRegs)
 {
-	printf("# srcs: %016" PRIx32 "\n", instr.srcBits);
-	Srcs srcs;
-	memcpy((char *) &srcs, (char *) &instr.srcBits, sizeof(srcs));
-	DumpSrcs(srcs);
-	instr.srcBits = 0;
-	DumpFMA(instr.FMABits, srcs);
-	instr.FMABits = 0;
-	DumpADD(instr.ADDBits, srcs);
-	instr.ADDBits = 0;
+	printf("# regs: %016" PRIx32 "\n", instr.regBits);
+	Regs regs;
+	memcpy((char *) &regs, (char *) &instr.regBits, sizeof(regs));
+	DumpRegs(regs);
+	DumpFMA(instr.FMABits, regs, nextRegs);
+	DumpADD(instr.ADDBits, regs, nextRegs);
 }
 
 void DumpClause(uint32_t *words, uint32_t size)
@@ -525,7 +625,7 @@ void DumpClause(uint32_t *words, uint32_t size)
 			case 0x4:
 			case 0xC:
 				curInstrs[1].FMABits |= bits(words[3], 22, 32);
-				curInstrs[1].srcBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
+				curInstrs[1].regBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
 				break;
 			case 0x0:
 			case 0x8:
@@ -535,6 +635,7 @@ void DumpClause(uint32_t *words, uint32_t size)
 				curInstrs[1] = {};
 				break;
 			case 0xe:
+			case 0xf:
 				consts[num_consts + 1] = bits(words[2], 4, 32) << 4 | (uint64_t) words[3] << 32;
 				break;
 			default:
@@ -543,6 +644,7 @@ void DumpClause(uint32_t *words, uint32_t size)
 
 		switch (tag) {
 			case 0xe:
+			case 0xf:
 				consts[num_consts] = (bits(words[0], 8, 32) << 4) | (uint64_t) words[1] << 28 | bits(words[2], 0, 4) << 60;
 				num_consts += 2;
 				break;
@@ -555,15 +657,24 @@ void DumpClause(uint32_t *words, uint32_t size)
 				// 23 bits
 				curInstrs[0].FMABits = bits(words[1], 11, 32) | bits(words[2], 0, 2) << (32 - 11);
 				// 35 bits
-				curInstrs[0].srcBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
+				curInstrs[0].regBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
 				instrs.push_back(curInstrs[0]);
 				curInstrs[0] = {};
 				break;
 		}
 	}
 
-	for (AluInstr instr : instrs) {
-		DumpInstr(instr);
+	for (auto instr = instrs.begin(), end = instrs.end(); instr != end;
+		 ++instr) {
+		Regs nextRegs;
+		if (instr + 1 == end) {
+			nextRegs = {};
+		} else {
+			memcpy((char *) &nextRegs, (char *) &instr[1].regBits,
+					sizeof(nextRegs));
+		}
+
+		DumpInstr(*instr, nextRegs);
 	}
 
 	for (int i = 0; i < num_consts; i++) {
