@@ -279,7 +279,7 @@ static FMAOpInfo findFMAOpInfo(unsigned op)
 				opCmp = op;
 				break;
 			case FMATwoSrc:
-				opCmp = op & 0x7;
+				opCmp = op & ~0x7;
 				break;
 			case FMAFcmp:
 				opCmp = op & ~0x1fff;
@@ -426,8 +426,7 @@ static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs)
 
 struct ADD {
 	uint64_t src0 : 3;
-	uint64_t src1 : 3;
-	uint64_t op : 14;
+	uint64_t op : 17;
 };
 
 enum ADDSrcType {
@@ -444,29 +443,37 @@ struct ADDOpInfo {
 };
 
 static const ADDOpInfo ADDOpInfos[] = {
-	{ 0x0000, "FMAX", ADDTwoSrcFmod },
-	{ 0x0400, "FMIN", ADDTwoSrcFmod },
-	{ 0x0800, "FADD", ADDTwoSrcFmod },
-	{ 0x0c00, "FCMP.GL", ADDFcmp },
-	{ 0x0e00, "FCMP.D3D", ADDFcmp },
-	{ 0x0f65, "MOV",  ADDOneSrc },
-	{ 0x1ec8, "ICMP.GL.GT", ADDTwoSrc }, // src0 > src1 ? 1 : 0
-	{ 0x1ec9, "ICMP.GL.GE", ADDTwoSrc },
-	{ 0x1eca, "UCMP.GL.GT", ADDTwoSrc },
-	{ 0x1ecb, "UCMP.GL.GE", ADDTwoSrc },
-	{ 0x1ecc, "ICMP.GL.EQ", ADDTwoSrc },
-	{ 0x1ed8, "ICMP.D3D.GT", ADDTwoSrc }, // src0 > src1 ? ~0 : 0
-	{ 0x1ed9, "ICMP.D3D.GE", ADDTwoSrc },
-	{ 0x1eda, "UCMP.D3D.GT", ADDTwoSrc },
-	{ 0x1edb, "UCMP.D3D.GE", ADDTwoSrc },
-	{ 0x1edc, "ICMP.D3D.EQ", ADDTwoSrc },
-	{ 0x2f18, "ADD",  ADDTwoSrc },
-	{ 0x2f58, "SUB",  ADDTwoSrc },
-	{ 0x2f82, "ADDC", ADDTwoSrc }, // adds src0 to the bottom bit of src1
-	{ 0x3ba3, "OR",  ADDTwoSrc },
-	{ 0x3bac, "LSHIFT", ADDTwoSrc },
-	{ 0x3ba4, "AND",  ADDTwoSrc },
-	{ 0x3baa, "XOR",  ADDTwoSrc },
+	{ 0x00000, "FMAX", ADDTwoSrcFmod },
+	{ 0x02000, "FMIN", ADDTwoSrcFmod },
+	{ 0x04000, "FADD", ADDTwoSrcFmod },
+	{ 0x06000, "FCMP.GL", ADDFcmp },
+	{ 0x07000, "FCMP.D3D", ADDFcmp },
+	{ 0x07936, "F2I", ADDOneSrc },
+	{ 0x07937, "F2U", ADDOneSrc },
+	{ 0x07978, "I2F", ADDOneSrc },
+	{ 0x07979, "U2F", ADDOneSrc },
+	{ 0x07b2c, "MOV",  ADDOneSrc },
+	//{ 0x0c000, "SKIP", ADDOneSrc }, // skip decoding this instruction
+	{ 0x0f640, "ICMP.GL.GT", ADDTwoSrc }, // src0 > src1 ? 1 : 0
+	{ 0x0f648, "ICMP.GL.GE", ADDTwoSrc },
+	{ 0x0f650, "UCMP.GL.GT", ADDTwoSrc },
+	{ 0x0f658, "UCMP.GL.GE", ADDTwoSrc },
+	{ 0x0f660, "ICMP.GL.EQ", ADDTwoSrc },
+	{ 0x0f6c0, "ICMP.D3D.GT", ADDTwoSrc }, // src0 > src1 ? ~0 : 0
+	{ 0x0f6c8, "ICMP.D3D.GE", ADDTwoSrc },
+	{ 0x0f6d0, "UCMP.D3D.GT", ADDTwoSrc },
+	{ 0x0f6d8, "UCMP.D3D.GE", ADDTwoSrc },
+	{ 0x0f6e0, "ICMP.D3D.EQ", ADDTwoSrc },
+	//{ 0x10000, "CONST", ADDOneSrc }, // this is actually a constant
+	{ 0x178c0, "ADD",  ADDTwoSrc },
+	{ 0x17ac0, "SUB",  ADDTwoSrc },
+	{ 0x17c10, "ADDC", ADDTwoSrc }, // adds src0 to the bottom bit of src1
+	{ 0x1dd18, "OR",  ADDTwoSrc },
+	{ 0x1dd60, "LSHIFT", ADDTwoSrc },
+	{ 0x1dd20, "AND",  ADDTwoSrc },
+	{ 0x1dd50, "XOR",  ADDTwoSrc },
+	{ 0x1dd84, "RSHIFT", ADDTwoSrc },
+	{ 0x1dda4, "ARSHIFT", ADDTwoSrc },
 };
 
 static ADDOpInfo findADDOpInfo(unsigned op)
@@ -475,14 +482,16 @@ static ADDOpInfo findADDOpInfo(unsigned op)
 		unsigned opCmp;
 		switch (ADDOpInfos[i].srcType) {
 			case ADDOneSrc:
-			case ADDTwoSrc:
 				opCmp = op;
 				break;
+			case ADDTwoSrc:
+				opCmp = op & ~0x7;
+				break;
 			case ADDTwoSrcFmod:
-				opCmp = op & ~0x7f;
+				opCmp = op & ~0x3ff;
 				break;
 			case ADDFcmp:
-				opCmp = op & ~0xff;
+				opCmp = op & ~0x7ff;
 				break;
 		}
 		if (ADDOpInfos[i].op == opCmp)
@@ -506,28 +515,9 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs)
 	printf("%s", info.name);
 	if (info.srcType == ADDTwoSrcFmod) {
 		// output modifiers
-		DumpOutputMod(bits(ADD.op, 5, 7));
+		DumpOutputMod(bits(ADD.op, 8, 10));
 	} else if (info.srcType == ADDFcmp) {
-		switch (bits(ADD.op, 0, 3)) {
-			case 0:
-				printf(".OEQ");
-				break;
-			case 1:
-				printf(".OGT");
-				break;
-			case 2:
-				printf(".OGE");
-				break;
-			case 3:
-				printf(".UNE");
-				break;
-			case 4:
-				printf(".OLT");
-				break;
-			case 5:
-				printf(".OLE");
-				break;
-		}
+		DumpFCMP(bits(ADD.op, 3, 6));
 	}
 	printf(" ");
 
@@ -545,34 +535,34 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs)
 		case ADDTwoSrc:
 			DumpSrc(ADD.src0, regs, false);
 			printf(", ");
-			DumpSrc(ADD.src1, regs, false);
+			DumpSrc(ADD.op & 0x7, regs, false);
 			break;
 		case ADDTwoSrcFmod:
-			if (ADD.op & 0x2)
+			if (ADD.op & 0x10)
 				printf("-");
 			DumpSrc(ADD.src0, regs, false);
 			printf(", ");
-			if (ADD.op & 0x4)
+			if (ADD.op & 0x20)
 				printf("-");
-			DumpSrc(ADD.src1, regs, false);
+			DumpSrc(ADD.op & 0x7, regs, false);
 			break;
 		case ADDFcmp:
-			if (ADD.op & 0x80) {
+			if (ADD.op & 0x400) {
 				printf("-");
 			}
-			if (ADD.op & 0x20) {
+			if (ADD.op & 0x100) {
 				printf("abs(");
 			}
 			DumpSrc(ADD.src0, regs, false);
-			if (ADD.op & 0x20) {
+			if (ADD.op & 0x100) {
 				printf(")");
 			}
 			printf(", ");
-			if (ADD.op & 0x40) {
+			if (ADD.op & 0x200) {
 				printf("abs(");
 			}
-			DumpSrc(ADD.src1, regs, false);
-			if (ADD.op & 0x40) {
+			DumpSrc(ADD.op & 0x7, regs, false);
+			if (ADD.op & 0x200) {
 				printf(")");
 			}
 	}
@@ -598,6 +588,12 @@ void DumpInstr(const AluInstr &instr, Regs nextRegs)
 	DumpADD(instr.ADDBits, regs, nextRegs);
 }
 
+void AddInstr(std::vector<AluInstr> &instrs, const AluInstr &instr)
+{
+	//if (instr.ADDBits != 0x80000)
+		instrs.push_back(instr);
+}
+
 void DumpClause(uint32_t *words, uint32_t size)
 {
 	AluInstr curInstrs[2] = { {}, {} };
@@ -615,7 +611,7 @@ void DumpClause(uint32_t *words, uint32_t size)
 			curInstrs[0].ADDBits |= bits(words[1], 3, 6) << 17;
 			curInstrs[1].ADDBits = bits(words[3], 0, 17) | (bits(words[0], 0, 3) << 17);
 			curInstrs[1].FMABits |= bits(words[2], 19, 32) << 10;
-			instrs.push_back(curInstrs[1]);
+			AddInstr(instrs, curInstrs[1]);
 			curInstrs[1] = {};
 		} else {
 			curInstrs[0].ADDBits |= bits(words[0], 0, 3) << 17;
@@ -631,7 +627,7 @@ void DumpClause(uint32_t *words, uint32_t size)
 			case 0x8:
 				curInstrs[1].ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
 				curInstrs[1].FMABits |= bits(words[2], 19, 32) << 10;
-				instrs.push_back(curInstrs[1]);
+				AddInstr(instrs, curInstrs[1]);
 				curInstrs[1] = {};
 				break;
 			case 0xe:
@@ -658,7 +654,7 @@ void DumpClause(uint32_t *words, uint32_t size)
 				curInstrs[0].FMABits = bits(words[1], 11, 32) | bits(words[2], 0, 2) << (32 - 11);
 				// 35 bits
 				curInstrs[0].regBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
-				instrs.push_back(curInstrs[0]);
+				AddInstr(instrs, curInstrs[0]);
 				curInstrs[0] = {};
 				break;
 		}
