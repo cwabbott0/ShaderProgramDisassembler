@@ -35,7 +35,7 @@ enum RegWriteUnit {
 struct RegCtrl {
 	bool readReg0;
 	bool readReg1;
-	bool readReg2;
+	bool readReg3;
 	RegWriteUnit FMAWriteUnit;
 	RegWriteUnit ADDWriteUnit;
 	bool clauseStart;
@@ -60,21 +60,21 @@ static RegCtrl DecodeRegCtrl(Regs regs)
 			decoded.clauseStart = true;
 			break;
 		case 1:
-			decoded.FMAWriteUnit = RegWrite3;
+			decoded.FMAWriteUnit = RegWrite2;
 			break;
 		case 3:
-			decoded.FMAWriteUnit = RegWrite3;
-			decoded.readReg2 = true;
+			decoded.FMAWriteUnit = RegWrite2;
+			decoded.readReg3 = true;
 			break;
 		case 4:
-			decoded.readReg2 = true;
+			decoded.readReg3 = true;
 			break;
 		case 5:
-			decoded.ADDWriteUnit = RegWrite3;
+			decoded.ADDWriteUnit = RegWrite2;
 			break;
 		case 6:
-			decoded.ADDWriteUnit = RegWrite3;
-			decoded.readReg2 = true;
+			decoded.ADDWriteUnit = RegWrite2;
+			decoded.readReg3 = true;
 			break;
 		case 8:
 			decoded.clauseStart = true;
@@ -82,7 +82,7 @@ static RegCtrl DecodeRegCtrl(Regs regs)
 		case 11:
 			break;
 		case 12:
-			decoded.readReg2 = true;
+			decoded.readReg3 = true;
 			break;
 		case 15:
 			decoded.FMAWriteUnit = RegWrite2;
@@ -144,6 +144,7 @@ static void DumpSrc(unsigned src, Regs srcs, bool isFMA)
 					case 4: printf("const0"); break;
 					case 5: printf("const2"); break;
 					case 6: printf("const4"); break;
+					case 7: printf("const6"); break;
 					default: printf("unkConstSrc"); break;
 				}
 			}
@@ -157,6 +158,7 @@ static void DumpSrc(unsigned src, Regs srcs, bool isFMA)
 					case 4: printf("const1"); break;
 					case 5: printf("const3"); break;
 					case 6: printf("const5"); break;
+					case 7: printf("const7"); break;
 					default: printf("unkConstSrc"); break;
 				}
 			}
@@ -213,6 +215,8 @@ static const FMAOpInfo FMAOpInfos[] = {
 	{ 0x4ff98, "ADD", FMATwoSrc },
 	{ 0x4ffd8, "SUB", FMATwoSrc },
 	{ 0x4fff0, "SUBB", FMATwoSrc },
+	{ 0x50180, "FRCP_PT5", FMATwoSrc },
+	{ 0x528c0, "FRCP_PT3", FMAThreeSrc },
 	{ 0x58000, "FADD", FMATwoSrcFmod },
 	{ 0x5c000, "CSEL.FEQ", FMAFourSrc },
 	{ 0x5c200, "CSEL.FGT", FMAFourSrc },
@@ -259,6 +263,8 @@ static const FMAOpInfo FMAOpInfos[] = {
 	{ 0xe0178, "I2F", FMAOneSrc },
 	{ 0xe0179, "U2F", FMAOneSrc },
 	{ 0xe032d, "MOV",  FMAOneSrc },
+	{ 0xe0365, "FRCP_PT1", FMAOneSrc },
+	{ 0xe038d, "FRCP_PT4", FMAOneSrc },
 	{ 0xe0b80, "IMAX", FMATwoSrc },
 	{ 0xe0bc0, "UMAX", FMATwoSrc },
 	{ 0xe0c00, "IMIN", FMATwoSrc },
@@ -452,8 +458,9 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x07937, "F2U", ADDOneSrc },
 	{ 0x07978, "I2F", ADDOneSrc },
 	{ 0x07979, "U2F", ADDOneSrc },
-	{ 0x07b2c, "MOV",  ADDOneSrc },
+	{ 0x07b28, "MOV",  ADDTwoSrc }, // the two sources are always the same?
 	//{ 0x0c000, "SKIP", ADDOneSrc }, // skip decoding this instruction
+	{ 0x0ce00, "FRCP_PT2", ADDOneSrc },
 	{ 0x0f640, "ICMP.GL.GT", ADDTwoSrc }, // src0 > src1 ? 1 : 0
 	{ 0x0f648, "ICMP.GL.GE", ADDTwoSrc },
 	{ 0x0f650, "UCMP.GL.GT", ADDTwoSrc },
@@ -588,17 +595,18 @@ void DumpInstr(const AluInstr &instr, Regs nextRegs)
 	DumpADD(instr.ADDBits, regs, nextRegs);
 }
 
-void AddInstr(std::vector<AluInstr> &instrs, const AluInstr &instr)
+void AddInstr(std::vector<AluInstr> &instrs, AluInstr &instr)
 {
 	//if (instr.ADDBits != 0x80000)
 		instrs.push_back(instr);
+	instr = {};
 }
 
 void DumpClause(uint32_t *words, uint32_t size)
 {
 	AluInstr curInstrs[2] = { {}, {} };
 	std::vector<AluInstr> instrs;
-	uint64_t consts[3] = { 0, 0, 0 };
+	uint64_t consts[8] = {};
 	unsigned num_consts = 0;
 	for (unsigned i = 0; i < size; i++, words += 4) {
 		printf("# ");
@@ -608,45 +616,51 @@ void DumpClause(uint32_t *words, uint32_t size)
 		unsigned tag = bits(words[0], 3, 8);
 
 		if (tag & 0x10) {
-			curInstrs[0].ADDBits |= bits(words[1], 3, 6) << 17;
+			curInstrs[0].ADDBits |= bits(words[0], 3, 6) << 17;
 			curInstrs[1].ADDBits = bits(words[3], 0, 17) | (bits(words[0], 0, 3) << 17);
 			curInstrs[1].FMABits |= bits(words[2], 19, 32) << 10;
 			AddInstr(instrs, curInstrs[1]);
-			curInstrs[1] = {};
+			consts[num_consts] = bits(words[3], 17, 32) << 4;
 		} else {
 			curInstrs[0].ADDBits |= bits(words[0], 0, 3) << 17;
 		}
 
-		switch (tag) {
-			case 0x4:
-			case 0xC:
-				curInstrs[1].FMABits |= bits(words[3], 22, 32);
-				curInstrs[1].regBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
-				break;
+		switch (tag & 0x7) {
 			case 0x0:
-			case 0x8:
 				curInstrs[1].ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
 				curInstrs[1].FMABits |= bits(words[2], 19, 32) << 10;
 				AddInstr(instrs, curInstrs[1]);
-				curInstrs[1] = {};
 				break;
-			case 0xe:
-			case 0xf:
+			case 0x1:
+				// TODO handle clause header here
+				// usually used for one-quadword clause
+				break;
+			case 0x2:
+			case 0x3:
+				consts[num_consts++] |= (bits(words[2], 19, 32) | ((uint64_t) words[3] << 13)) << 19;
+				break;
+			case 0x4:
+				curInstrs[1].FMABits |= bits(words[3], 22, 32);
+				curInstrs[1].regBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
+				break;
+			case 0x5:
+				// TODO handle clause header here
+				// usually used for beginning of clause
+				break;
+			case 0x6:
+			case 0x7:
 				consts[num_consts + 1] = bits(words[2], 4, 32) << 4 | (uint64_t) words[3] << 32;
 				break;
 			default:
 				break;
 		}
 
-		switch (tag) {
-			case 0xe:
-			case 0xf:
+		switch (tag & 0x7) {
+			case 0x6:
+			case 0x7:
 				consts[num_consts] = (bits(words[0], 8, 32) << 4) | (uint64_t) words[1] << 28 | bits(words[2], 0, 4) << 60;
 				num_consts += 2;
 				break;
-			case 0x8:
-				//consts[num_consts++] = (bits(words[0], 8, 32) << 4) | (uint64_t) words[1] << 28 | bits(words[2], 0, 4) << 60;
-				//break;
 			default:
 				// 20 bits
 				curInstrs[0].ADDBits |= bits(words[2], 2, 32 - 13);
@@ -655,7 +669,6 @@ void DumpClause(uint32_t *words, uint32_t size)
 				// 35 bits
 				curInstrs[0].regBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
 				AddInstr(instrs, curInstrs[0]);
-				curInstrs[0] = {};
 				break;
 		}
 	}
