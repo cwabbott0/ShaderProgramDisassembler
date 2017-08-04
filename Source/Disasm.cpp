@@ -604,7 +604,9 @@ void AddInstr(std::vector<AluInstr> &instrs, AluInstr &instr)
 
 void DumpClause(uint32_t *words, uint32_t size)
 {
-	AluInstr curInstrs[2] = { {}, {} };
+	AluInstr mainInstr = {};
+	AluInstr extraInstr = {};
+	bool extraInstrStarted = false;
 	std::vector<AluInstr> instrs;
 	uint64_t consts[8] = {};
 	unsigned num_consts = 0;
@@ -615,61 +617,73 @@ void DumpClause(uint32_t *words, uint32_t size)
 		printf("\n");
 		unsigned tag = bits(words[0], 3, 8);
 
+		bool mainInstrConstant = false;
 		if (tag & 0x10) {
-			curInstrs[0].ADDBits |= bits(words[0], 3, 6) << 17;
-			curInstrs[1].ADDBits = bits(words[3], 0, 17) | (bits(words[0], 0, 3) << 17);
-			curInstrs[1].FMABits |= bits(words[2], 19, 32) << 10;
-			AddInstr(instrs, curInstrs[1]);
+			mainInstr.ADDBits |= (tag & 0x7) << 17;
+			assert(extraInstrStarted);
+			extraInstr.ADDBits = bits(words[3], 0, 17) | (bits(words[0], 0, 3) << 17);
+			extraInstr.FMABits |= bits(words[2], 19, 32) << 10;
+			AddInstr(instrs, extraInstr);
+			extraInstrStarted = false;
 			consts[num_consts] = bits(words[3], 17, 32) << 4;
 		} else {
-			curInstrs[0].ADDBits |= bits(words[0], 0, 3) << 17;
+			mainInstr.ADDBits |= bits(words[0], 0, 3) << 17;
+			switch (tag & 0x7) {
+				case 0x0:
+					if (extraInstrStarted) {
+						// TODO if this comes after a 0x4 quadword, then 0 seems to
+						// mean that the main instruction is a constant instead,
+						// but it's not clear what the other cases mean.
+						unsigned tag2 = bits(words[3], 26, 29);
+						mainInstrConstant = (tag2 == 0);
+						extraInstr.ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
+						extraInstr.FMABits |= bits(words[2], 19, 32) << 10;
+						AddInstr(instrs, extraInstr);
+						extraInstrStarted = false;
+					}
+					break;
+				case 0x1:
+					// TODO handle clause header here
+					// usually used for one-quadword clause
+					break;
+				case 0x2:
+				case 0x3:
+					consts[num_consts++] |= (bits(words[2], 19, 32) | ((uint64_t) words[3] << 13)) << 19;
+					break;
+				case 0x4:
+					extraInstr.FMABits |= bits(words[3], 22, 32);
+					extraInstr.regBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
+					extraInstrStarted = true;
+					break;
+				case 0x5:
+					// TODO handle clause header here
+					// usually used for beginning of clause
+					break;
+				case 0x6:
+				case 0x7:
+					consts[num_consts + 1] = bits(words[2], 4, 32) << 4 | (uint64_t) words[3] << 32;
+					mainInstrConstant = true;
+					break;
+				default:
+					break;
+			}
 		}
 
-		switch (tag & 0x7) {
-			case 0x0:
-				curInstrs[1].ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
-				curInstrs[1].FMABits |= bits(words[2], 19, 32) << 10;
-				AddInstr(instrs, curInstrs[1]);
-				break;
-			case 0x1:
-				// TODO handle clause header here
-				// usually used for one-quadword clause
-				break;
-			case 0x2:
-			case 0x3:
-				consts[num_consts++] |= (bits(words[2], 19, 32) | ((uint64_t) words[3] << 13)) << 19;
-				break;
-			case 0x4:
-				curInstrs[1].FMABits |= bits(words[3], 22, 32);
-				curInstrs[1].regBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
-				break;
-			case 0x5:
-				// TODO handle clause header here
-				// usually used for beginning of clause
-				break;
-			case 0x6:
-			case 0x7:
-				consts[num_consts + 1] = bits(words[2], 4, 32) << 4 | (uint64_t) words[3] << 32;
-				break;
-			default:
-				break;
-		}
-
-		switch (tag & 0x7) {
-			case 0x6:
-			case 0x7:
-				consts[num_consts] = (bits(words[0], 8, 32) << 4) | (uint64_t) words[1] << 28 | bits(words[2], 0, 4) << 60;
+		if (mainInstrConstant) {
+			consts[num_consts] = (bits(words[0], 8, 32) << 4) | (uint64_t) words[1] << 28 | bits(words[2], 0, 4) << 60;
+			if ((tag & 0x7) == 0) {
+				num_consts++;
+			} else {
 				num_consts += 2;
-				break;
-			default:
-				// 20 bits
-				curInstrs[0].ADDBits |= bits(words[2], 2, 32 - 13);
-				// 23 bits
-				curInstrs[0].FMABits = bits(words[1], 11, 32) | bits(words[2], 0, 2) << (32 - 11);
-				// 35 bits
-				curInstrs[0].regBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
-				AddInstr(instrs, curInstrs[0]);
-				break;
+			}
+		} else {
+			// 20 bits
+			mainInstr.ADDBits |= bits(words[2], 2, 32 - 13);
+			// 23 bits
+			mainInstr.FMABits = bits(words[1], 11, 32) | bits(words[2], 0, 2) << (32 - 11);
+			// 35 bits
+			mainInstr.regBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
+			AddInstr(instrs, mainInstr);
 		}
 	}
 
