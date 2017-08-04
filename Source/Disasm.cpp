@@ -123,7 +123,17 @@ static void DumpRegs(Regs srcs)
 	}
 }
 
-static void DumpSrc(unsigned src, Regs srcs, bool isFMA)
+static void DumpConstImm(uint32_t imm)
+{
+	union {
+		float f;
+		uint32_t i;
+	} fi;
+	fi.i = imm;
+	printf("%f (0x%08x)", fi.f, imm);
+}
+
+static void DumpSrc(unsigned src, Regs srcs, uint64_t *consts, bool isFMA)
 {
 	switch (src) {
 		case 0: printf("R%d", srcs.reg0); break;
@@ -139,14 +149,21 @@ static void DumpSrc(unsigned src, Regs srcs, bool isFMA)
 			if (srcs.uniformConst & 0x80) {
 				printf("U%d", (srcs.uniformConst & 0x7f) * 2);
 			} else {
-				// TODO parse constants in clause
+				unsigned low_bits = srcs.uniformConst & 0xf;
+				uint32_t imm;
+				bool valid = true;
 				switch (srcs.uniformConst >> 4) {
-					case 4: printf("const0"); break;
-					case 5: printf("const2"); break;
-					case 6: printf("const4"); break;
-					case 7: printf("const6"); break;
-					default: printf("unkConstSrc"); break;
+					case 4: imm = ((uint32_t) consts[0]) | low_bits; break;
+					case 5: imm = ((uint32_t) consts[1]) | low_bits; break;
+					case 6: imm = ((uint32_t) consts[2]) | low_bits; break;
+					case 7: imm = ((uint32_t) consts[3]) | low_bits; break;
+					case 2: imm = ((uint32_t) consts[4]) | low_bits; break;
+					default: valid = false; break;
 				}
+				if (valid)
+					DumpConstImm(imm);
+				else
+					printf("unkConstSrc");
 			}
 			break;
 		}
@@ -154,13 +171,20 @@ static void DumpSrc(unsigned src, Regs srcs, bool isFMA)
 			if (srcs.uniformConst & 0x80) {
 				printf("U%d", (srcs.uniformConst & 0x7f) * 2 + 1);
 			} else {
+				uint32_t imm;
+				bool valid = true;
 				switch (srcs.uniformConst >> 4) {
-					case 4: printf("const1"); break;
-					case 5: printf("const3"); break;
-					case 6: printf("const5"); break;
-					case 7: printf("const7"); break;
-					default: printf("unkConstSrc"); break;
+					case 4: imm = (uint32_t)(consts[0] >> 32); break;
+					case 5: imm = (uint32_t)(consts[1] >> 32); break;
+					case 6: imm = (uint32_t)(consts[2] >> 32); break;
+					case 7: imm = (uint32_t)(consts[3] >> 32); break;
+					case 2: imm = (uint32_t)(consts[4] >> 32); break;
+					default: valid = false; break;
 				}
+				if (valid)
+					DumpConstImm(imm);
+				else
+					printf("unkConstSrc");
 			}
 			break;
 		}
@@ -341,7 +365,7 @@ static void DumpFCMP(unsigned op)
 		}
 }
 
-static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs)
+static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 {
 	printf("# FMA: %016" PRIx64 "\n", word);
 	FMA FMA;
@@ -368,26 +392,26 @@ static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs)
 
 	switch (info.srcType) {
 		case FMAOneSrc:
-			DumpSrc(FMA.src0, regs, true);
+			DumpSrc(FMA.src0, regs, consts, true);
 			break;
 		case FMATwoSrc:
-			DumpSrc(FMA.src0, regs, true);
+			DumpSrc(FMA.src0, regs, consts, true);
 			printf(", ");
-			DumpSrc(FMA.op & 0x7, regs, true);
+			DumpSrc(FMA.op & 0x7, regs, consts, true);
 			break;
 		case FMATwoSrcFmod:
 			if (FMA.op & 0x10)
 				printf("-");
-			DumpSrc(FMA.src0, regs, true);
+			DumpSrc(FMA.src0, regs, consts, true);
 			printf(", ");
 			if (FMA.op & 0x20)
 				printf("-");
-			DumpSrc(FMA.op & 0x7, regs, true);
+			DumpSrc(FMA.op & 0x7, regs, consts, true);
 			break;
 		case FMAFcmp:
 			if (FMA.op & 0x200)
 				printf("abs(");
-			DumpSrc(FMA.src0, regs, true);
+			DumpSrc(FMA.src0, regs, consts, true);
 			if (FMA.op & 0x200)
 				printf(")");
 			printf(", ");
@@ -395,36 +419,36 @@ static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs)
 				printf("-");
 			if (FMA.op & 0x8)
 				printf("abs(");
-			DumpSrc(FMA.op & 0x7, regs, true);
+			DumpSrc(FMA.op & 0x7, regs, consts, true);
 			if (FMA.op & 0x8)
 				printf(")");
 			break;
 		case FMAThreeSrc:
-			DumpSrc(FMA.src0, regs, true);
+			DumpSrc(FMA.src0, regs, consts, true);
 			printf(", ");
-			DumpSrc(FMA.op & 0x7, regs, true);
+			DumpSrc(FMA.op & 0x7, regs, consts, true);
 			printf(", ");
-			DumpSrc((FMA.op >> 3) & 0x7, regs, true);
+			DumpSrc((FMA.op >> 3) & 0x7, regs, consts, true);
 			break;
 		case FMAThreeSrcFmod:
 			if (FMA.op & (1 << 14))
 				printf("-");
-			DumpSrc(FMA.src0, regs, true);
+			DumpSrc(FMA.src0, regs, consts, true);
 			printf(", ");
-			DumpSrc(FMA.op & 0x7, regs, true);
+			DumpSrc(FMA.op & 0x7, regs, consts, true);
 			printf(", ");
 			if (FMA.op & (1 << 15))
 				printf("-");
-			DumpSrc((FMA.op >> 3) & 0x7, regs, true);
+			DumpSrc((FMA.op >> 3) & 0x7, regs, consts, true);
 			break;
 		case FMAFourSrc:
-			DumpSrc(FMA.src0, regs, true);
+			DumpSrc(FMA.src0, regs, consts, true);
 			printf(", ");
-			DumpSrc(FMA.op & 0x7, regs, true);
+			DumpSrc(FMA.op & 0x7, regs, consts, true);
 			printf(", ");
-			DumpSrc((FMA.op >> 3) & 0x7, regs, true);
+			DumpSrc((FMA.op >> 3) & 0x7, regs, consts, true);
 			printf(", ");
-			DumpSrc((FMA.op >> 6) & 0x7, regs, true);
+			DumpSrc((FMA.op >> 6) & 0x7, regs, consts, true);
 			break;
 	}
 	printf("\n");
@@ -512,7 +536,7 @@ static ADDOpInfo findADDOpInfo(unsigned op)
 	return info;
 }
 
-static void DumpADD(uint64_t word, Regs regs, Regs nextRegs)
+static void DumpADD(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 {
 	printf("# ADD: %016" PRIx64 "\n", word);
 	ADD ADD;
@@ -537,21 +561,21 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs)
 
 	switch (info.srcType) {
 		case ADDOneSrc:
-			DumpSrc(ADD.src0, regs, false);
+			DumpSrc(ADD.src0, regs, consts, false);
 			break;
 		case ADDTwoSrc:
-			DumpSrc(ADD.src0, regs, false);
+			DumpSrc(ADD.src0, regs, consts, false);
 			printf(", ");
-			DumpSrc(ADD.op & 0x7, regs, false);
+			DumpSrc(ADD.op & 0x7, regs, consts, false);
 			break;
 		case ADDTwoSrcFmod:
 			if (ADD.op & 0x10)
 				printf("-");
-			DumpSrc(ADD.src0, regs, false);
+			DumpSrc(ADD.src0, regs, consts, false);
 			printf(", ");
 			if (ADD.op & 0x20)
 				printf("-");
-			DumpSrc(ADD.op & 0x7, regs, false);
+			DumpSrc(ADD.op & 0x7, regs, consts, false);
 			break;
 		case ADDFcmp:
 			if (ADD.op & 0x400) {
@@ -560,7 +584,7 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs)
 			if (ADD.op & 0x100) {
 				printf("abs(");
 			}
-			DumpSrc(ADD.src0, regs, false);
+			DumpSrc(ADD.src0, regs, consts, false);
 			if (ADD.op & 0x100) {
 				printf(")");
 			}
@@ -568,7 +592,7 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs)
 			if (ADD.op & 0x200) {
 				printf("abs(");
 			}
-			DumpSrc(ADD.op & 0x7, regs, false);
+			DumpSrc(ADD.op & 0x7, regs, consts, false);
 			if (ADD.op & 0x200) {
 				printf(")");
 			}
@@ -585,20 +609,19 @@ struct AluInstr {
 	uint64_t ADDBits;
 };
 
-void DumpInstr(const AluInstr &instr, Regs nextRegs)
+void DumpInstr(const AluInstr &instr, Regs nextRegs, uint64_t *consts)
 {
 	printf("# regs: %016" PRIx32 "\n", instr.regBits);
 	Regs regs;
 	memcpy((char *) &regs, (char *) &instr.regBits, sizeof(regs));
 	DumpRegs(regs);
-	DumpFMA(instr.FMABits, regs, nextRegs);
-	DumpADD(instr.ADDBits, regs, nextRegs);
+	DumpFMA(instr.FMABits, regs, nextRegs, consts);
+	DumpADD(instr.ADDBits, regs, nextRegs, consts);
 }
 
 void AddInstr(std::vector<AluInstr> &instrs, AluInstr &instr)
 {
-	//if (instr.ADDBits != 0x80000)
-		instrs.push_back(instr);
+	instrs.push_back(instr);
 	instr = {};
 }
 
@@ -697,7 +720,7 @@ void DumpClause(uint32_t *words, uint32_t size)
 					sizeof(nextRegs));
 		}
 
-		DumpInstr(*instr, nextRegs);
+		DumpInstr(*instr, nextRegs, consts);
 	}
 
 	for (int i = 0; i < num_consts; i++) {
