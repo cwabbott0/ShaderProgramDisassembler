@@ -56,9 +56,6 @@ static RegCtrl DecodeRegCtrl(Regs regs)
 		decoded.readReg0 = decoded.readReg1 = true;
 	}
 	switch (ctrl) {
-		case 0:
-			decoded.clauseStart = true;
-			break;
 		case 1:
 			decoded.FMAWriteUnit = RegWrite2;
 			break;
@@ -79,11 +76,19 @@ static RegCtrl DecodeRegCtrl(Regs regs)
 		case 8:
 			decoded.clauseStart = true;
 			break;
+		case 9:
+			decoded.FMAWriteUnit = RegWrite2;
+			decoded.clauseStart = true;
+			break;
 		case 11:
 			break;
 		case 12:
 			decoded.readReg3 = true;
+			decoded.clauseStart = true;
 			break;
+		case 13:
+			decoded.ADDWriteUnit = RegWrite2;
+			decoded.clauseStart = true;
 		case 15:
 			decoded.FMAWriteUnit = RegWrite2;
 			decoded.ADDWriteUnit = RegWrite3;
@@ -714,7 +719,8 @@ void DumpClause(uint32_t *words, uint32_t size)
 		 ++instr) {
 		Regs nextRegs;
 		if (instr + 1 == end) {
-			nextRegs = {};
+			memcpy((char *) &nextRegs, (char *) &instrs[0].regBits,
+					sizeof(nextRegs));
 		} else {
 			memcpy((char *) &nextRegs, (char *) &instr[1].regBits,
 					sizeof(nextRegs));
