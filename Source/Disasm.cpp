@@ -638,6 +638,7 @@ void DumpClause(uint32_t *words, uint32_t size)
 	std::vector<AluInstr> instrs;
 	uint64_t consts[8] = {};
 	unsigned num_consts = 0;
+	uint64_t header = 0;
 	for (unsigned i = 0; i < size; i++, words += 4) {
 		printf("# ");
 		for (int i = 0; i < 4; i++)
@@ -671,8 +672,10 @@ void DumpClause(uint32_t *words, uint32_t size)
 					}
 					break;
 				case 0x1:
-					// TODO handle clause header here
-					// usually used for one-quadword clause
+					// used for one-quadword clause
+				case 0x5:
+					// used for beginning of clause
+					header = bits(words[2], 19, 32) | ((uint64_t) words[3] << (32 - 19));
 					break;
 				case 0x2:
 				case 0x3:
@@ -682,10 +685,6 @@ void DumpClause(uint32_t *words, uint32_t size)
 					extraInstr.FMABits |= bits(words[3], 22, 32);
 					extraInstr.regBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
 					extraInstrStarted = true;
-					break;
-				case 0x5:
-					// TODO handle clause header here
-					// usually used for beginning of clause
 					break;
 				case 0x6:
 				case 0x7:
@@ -715,6 +714,8 @@ void DumpClause(uint32_t *words, uint32_t size)
 		}
 	}
 
+	printf("# header: %012" PRIx64 "\n", header);
+
 	for (auto instr = instrs.begin(), end = instrs.end(); instr != end;
 		 ++instr) {
 		Regs nextRegs;
@@ -730,8 +731,8 @@ void DumpClause(uint32_t *words, uint32_t size)
 	}
 
 	for (int i = 0; i < num_consts; i++) {
-		printf("const%d: %08x\n", 2 * i, consts[i] & 0xffffffff);
-		printf("const%d: %08x\n", 2 * i + 1, consts[i] >> 32);
+		printf("# const%d: %08x\n", 2 * i, consts[i] & 0xffffffff);
+		printf("# const%d: %08x\n", 2 * i + 1, consts[i] >> 32);
 	}
 }
 
