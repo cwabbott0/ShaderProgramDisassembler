@@ -163,6 +163,7 @@ static void DumpSrc(unsigned src, Regs srcs, uint64_t *consts, bool isFMA)
 					case 6: imm = ((uint32_t) consts[2]) | low_bits; break;
 					case 7: imm = ((uint32_t) consts[3]) | low_bits; break;
 					case 2: imm = ((uint32_t) consts[4]) | low_bits; break;
+					case 3: imm = ((uint32_t) consts[5]) | low_bits; break;
 					default: valid = false; break;
 				}
 				if (valid)
@@ -184,6 +185,7 @@ static void DumpSrc(unsigned src, Regs srcs, uint64_t *consts, bool isFMA)
 					case 6: imm = (uint32_t)(consts[2] >> 32); break;
 					case 7: imm = (uint32_t)(consts[3] >> 32); break;
 					case 2: imm = (uint32_t)(consts[4] >> 32); break;
+					case 3: imm = (uint32_t)(consts[5] >> 32); break;
 					default: valid = false; break;
 				}
 				if (valid)
@@ -488,7 +490,6 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x07978, "I2F", ADDOneSrc },
 	{ 0x07979, "U2F", ADDOneSrc },
 	{ 0x07b28, "MOV",  ADDTwoSrc }, // the two sources are always the same?
-	//{ 0x0c000, "SKIP", ADDOneSrc }, // skip decoding this instruction
 	{ 0x0ce00, "FRCP_PT2", ADDOneSrc },
 	{ 0x0f640, "ICMP.GL.GT", ADDTwoSrc }, // src0 > src1 ? 1 : 0
 	{ 0x0f648, "ICMP.GL.GE", ADDTwoSrc },
@@ -500,7 +501,6 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x0f6d0, "UCMP.D3D.GT", ADDTwoSrc },
 	{ 0x0f6d8, "UCMP.D3D.GE", ADDTwoSrc },
 	{ 0x0f6e0, "ICMP.D3D.EQ", ADDTwoSrc },
-	//{ 0x10000, "CONST", ADDOneSrc }, // this is actually a constant
 	{ 0x178c0, "ADD",  ADDTwoSrc },
 	{ 0x17ac0, "SUB",  ADDTwoSrc },
 	{ 0x17c10, "ADDC", ADDTwoSrc }, // adds src0 to the bottom bit of src1
@@ -624,113 +624,192 @@ void DumpInstr(const AluInstr &instr, Regs nextRegs, uint64_t *consts)
 	DumpADD(instr.ADDBits, regs, nextRegs, consts);
 }
 
-void AddInstr(std::vector<AluInstr> &instrs, AluInstr &instr)
+void DumpClause(uint32_t *words, unsigned *size)
 {
-	instrs.push_back(instr);
-	instr = {};
-}
-
-void DumpClause(uint32_t *words, uint32_t size)
-{
-	AluInstr mainInstr = {};
-	AluInstr extraInstr = {};
-	bool extraInstrStarted = false;
-	std::vector<AluInstr> instrs;
-	uint64_t consts[8] = {};
-	unsigned num_consts = 0;
+	// State for a decoded clause
+	AluInstr instrs[8] = {};
+	uint64_t consts[6] = {};
+	unsigned num_instrs = 0;
 	uint64_t header = 0;
-	for (unsigned i = 0; i < size; i++, words += 4) {
-		printf("# ");
-		for (int i = 0; i < 4; i++)
-			printf("%08x ", words[3 - i]); // low bit on the right
-		printf("\n");
-		unsigned tag = bits(words[0], 3, 8);
 
-		bool mainInstrConstant = false;
-		if (tag & 0x10) {
-			mainInstr.ADDBits |= (tag & 0x7) << 17;
-			assert(extraInstrStarted);
-			extraInstr.ADDBits = bits(words[3], 0, 17) | (bits(words[0], 0, 3) << 17);
-			extraInstr.FMABits |= bits(words[2], 19, 32) << 10;
-			AddInstr(instrs, extraInstr);
-			extraInstrStarted = false;
-			consts[num_consts] = bits(words[3], 17, 32) << 4;
+	unsigned i;
+	for (i = 0; ; i++, words += 4) {
+		printf("# ");
+		for (int j = 0; j < 4; j++)
+			printf("%08x ", words[3 - j]); // low bit on the right
+		printf("\n");
+		unsigned tag = bits(words[0], 0, 8);
+
+		// speculatively decode some things that are common between many formats, so we can share some code
+		AluInstr mainInstr = {};
+		// 20 bits
+		mainInstr.ADDBits = bits(words[2], 2, 32 - 13);
+		// 23 bits
+		mainInstr.FMABits = bits(words[1], 11, 32) | bits(words[2], 0, 2) << (32 - 11);
+		// 35 bits
+		mainInstr.regBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
+
+		uint64_t const0 = bits(words[0], 8, 32) << 4 | (uint64_t) words[1] << 28 | bits(words[2], 0, 4) << 60;
+		uint64_t const1 = bits(words[2], 4, 32) << 4 | (uint64_t) words[3] << 32;
+
+		bool stop = tag & 0x40;
+
+		if (tag & 0x80) {
+			unsigned idx = stop ? 5 : 2;
+			mainInstr.ADDBits |= ((tag >> 3) & 0x7) << 17;
+			instrs[idx + 1] = mainInstr;
+			instrs[idx].ADDBits = bits(words[3], 0, 17) | ((tag & 0x7) << 17);
+			instrs[idx].FMABits |= bits(words[2], 19, 32) << 10;
+			consts[0] = bits(words[3], 17, 32) << 4;
 		} else {
-			mainInstr.ADDBits |= bits(words[0], 0, 3) << 17;
-			switch (tag & 0x7) {
+			bool done = false;
+			switch ((tag >> 3) & 0x7) {
 				case 0x0:
-					if (extraInstrStarted) {
-						// TODO if this comes after a 0x4 quadword, then 0 seems to
-						// mean that the main instruction is a constant instead,
-						// but it's not clear what the other cases mean.
-						unsigned tag2 = bits(words[3], 26, 29);
-						mainInstrConstant = (tag2 == 0);
-						extraInstr.ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
-						extraInstr.FMABits |= bits(words[2], 19, 32) << 10;
-						AddInstr(instrs, extraInstr);
-						extraInstrStarted = false;
+					switch (tag & 0x7) {
+						case 0x3:
+							mainInstr.ADDBits |= bits(words[3], 29, 32) << 17;
+							instrs[1] = mainInstr;
+							num_instrs = 2;
+							done = stop;
+							break;
+						case 0x4:
+							instrs[2].ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
+							instrs[2].FMABits |= bits(words[2], 19, 32) << 10;
+							consts[0] = const0;
+							num_instrs = 3;
+							done = stop;
+							break;
+						case 0x1:
+						case 0x5:
+							instrs[2].ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
+							instrs[2].FMABits |= bits(words[2], 19, 32) << 10;
+							mainInstr.ADDBits |= bits(words[3], 26, 29) << 17;
+							instrs[3] = mainInstr;
+							if ((tag & 0x7) == 0x5) {
+								num_instrs = 4;
+								done = stop;
+							}
+							break;
+						case 0x6:
+							instrs[5].ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
+							instrs[5].FMABits |= bits(words[2], 19, 32) << 10;
+							consts[0] = const0;
+							num_instrs = 6;
+							done = stop;
+							break;
+						case 0x7:
+							instrs[5].ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
+							instrs[5].FMABits |= bits(words[2], 19, 32) << 10;
+							mainInstr.ADDBits |= bits(words[3], 26, 29) << 17;
+							instrs[6] = mainInstr;
+							num_instrs = 7;
+							done = stop;
+							break;
+						default:
+							printf("unknown tag bits 0x%02x\n", tag);
 					}
 					break;
 				case 0x1:
-					// used for one-quadword clause
-				case 0x5:
-					// used for beginning of clause
 					header = bits(words[2], 19, 32) | ((uint64_t) words[3] << (32 - 19));
+					mainInstr.ADDBits |= (tag & 0x7) << 17;
+					instrs[0] = mainInstr;
+					num_instrs = 1;
+					done = stop;
+					// only constants can come after this
+					break;
+				case 0x5:
+					header = bits(words[2], 19, 32) | ((uint64_t) words[3] << (32 - 19));
+					mainInstr.ADDBits |= (tag & 0x7) << 17;
+					instrs[0] = mainInstr;
 					break;
 				case 0x2:
-				case 0x3:
-					consts[num_consts++] |= (bits(words[2], 19, 32) | ((uint64_t) words[3] << 13)) << 19;
+				case 0x3: {
+					unsigned idx = ((tag >> 3) & 0x7) == 2 ? 4 : 7;
+					mainInstr.ADDBits |= (tag & 0x7) << 17;
+					instrs[idx] = mainInstr;
+					consts[0] |= (bits(words[2], 19, 32) | ((uint64_t) words[3] << 13)) << 19;
+					num_instrs = idx + 1;
+					done = stop;
 					break;
-				case 0x4:
-					extraInstr.FMABits |= bits(words[3], 22, 32);
-					extraInstr.regBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
-					extraInstrStarted = true;
+				}
+				case 0x4: {
+					unsigned idx = stop ? 4 : 1;
+					mainInstr.ADDBits |= (tag & 0x7) << 17;
+					instrs[idx] = mainInstr;
+					instrs[idx + 1].FMABits |= bits(words[3], 22, 32);
+					instrs[idx + 1].regBits = bits(words[2], 19, 32) | (bits(words[3], 0, 22) << (32 - 19));
 					break;
+				}
 				case 0x6:
-				case 0x7:
-					consts[num_consts + 1] = bits(words[2], 4, 32) << 4 | (uint64_t) words[3] << 32;
-					mainInstrConstant = true;
+				case 0x7: {
+					unsigned pos = tag & 0xf;
+					// note that `pos' encodes both the total number of
+					// instructions and the position in the constant stream,
+					// presumably because decoded constants and instructions
+					// share a buffer in the decoder, but we only care about
+					// the position in the constant stream; the total number of
+					// instructions is redundant.
+					unsigned const_idx = 7;
+					switch (pos) {
+						case 0:
+						case 1:
+						case 2:
+						case 6:
+							const_idx = 0;
+							break;
+						case 3:
+						case 4:
+						case 7:
+						case 9:
+							const_idx = 1;
+							break;
+						case 5:
+						case 0xa:
+							const_idx = 2;
+							break;
+						case 8:
+						case 0xb:
+						case 0xc:
+							const_idx = 3;
+							break;
+						case 0xd:
+							const_idx = 4;
+							break;
+						default:
+							printf("# unknown pos 0x%x\n", pos);
+					}
+					consts[const_idx] = const0;
+					consts[const_idx + 1] = const1;
+					done = stop;
 					break;
+				}
 				default:
 					break;
 			}
-		}
 
-		if (mainInstrConstant) {
-			consts[num_consts] = (bits(words[0], 8, 32) << 4) | (uint64_t) words[1] << 28 | bits(words[2], 0, 4) << 60;
-			if ((tag & 0x7) == 0) {
-				num_consts++;
-			} else {
-				num_consts += 2;
-			}
-		} else {
-			// 20 bits
-			mainInstr.ADDBits |= bits(words[2], 2, 32 - 13);
-			// 23 bits
-			mainInstr.FMABits = bits(words[1], 11, 32) | bits(words[2], 0, 2) << (32 - 11);
-			// 35 bits
-			mainInstr.regBits = ((uint64_t) bits(words[1], 0, 11)) << 24 | (uint64_t) bits(words[0], 8, 32);
-			AddInstr(instrs, mainInstr);
+			if (done)
+				break;
 		}
 	}
+
+	*size = i + 1;
 
 	printf("# header: %012" PRIx64 "\n", header);
 
-	for (auto instr = instrs.begin(), end = instrs.end(); instr != end;
-		 ++instr) {
+	for (i = 0; i < num_instrs; i++) {
 		Regs nextRegs;
-		if (instr + 1 == end) {
+		if (i + 1 == num_instrs) {
 			memcpy((char *) &nextRegs, (char *) &instrs[0].regBits,
 					sizeof(nextRegs));
 		} else {
-			memcpy((char *) &nextRegs, (char *) &instr[1].regBits,
+			memcpy((char *) &nextRegs, (char *) &instrs[i + 1].regBits,
 					sizeof(nextRegs));
 		}
 
-		DumpInstr(*instr, nextRegs, consts);
+		DumpInstr(instrs[i], nextRegs, consts);
 	}
 
-	for (int i = 0; i < num_consts; i++) {
+	for (int i = 0; i < 6; i++) {
 		printf("# const%d: %08x\n", 2 * i, consts[i] & 0xffffffff);
 		printf("# const%d: %08x\n", 2 * i + 1, consts[i] >> 32);
 	}
@@ -742,27 +821,16 @@ void DumpInstructions(unsigned indent, uint8_t* instBlob, uint32_t size)
 	uint32_t *wordsEnd = words + (size / 4);
 	while (words != wordsEnd)
 	{
-		// search for the beginning of the next clause, or the padding after
-		// the program ends
-		uint32_t *bundleEnd = words + 4;
-		while (true) {
-			if (bundleEnd == wordsEnd)
-				break;
-			uint32_t zero[4] = {0};
-			if (memcmp(bundleEnd, zero, 4 * sizeof(uint32_t)) == 0)
-				break;
-			uint8_t tag = bundleEnd[0] & 0xf8;
-			// clauses seem to always start with this:
-			if (tag == 0x28)
-				break;
-			if (tag == 0x48)
-				break;
-			bundleEnd += 4;
-		}
+		// we don't know what the program-end bit is quite yet, so for now just
+		// assume that an all-0 quadword is padding
+		uint32_t zero[4] = {};
+		if (memcmp(words, zero, 4 * sizeof(uint32_t)) == 0)
+			break;
+		unsigned size;
 		printf("{\n");
-		DumpClause(words, (bundleEnd - words) / 4);
+		DumpClause(words, &size);
 		printf("}\n");
-		words = bundleEnd;
+		words += size * 4;
 	}
 }
 
