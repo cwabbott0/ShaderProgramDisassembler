@@ -206,11 +206,11 @@ static void DumpOutputMod(unsigned mod)
 		case 0:
 			break;
 		case 1:
-			printf(".sat0"); break; // max(out, 0)
+			printf(".clamp_0_inf"); break; // max(out, 0)
 		case 2:
-			printf(".unk2"); break;
+			printf(".clamp_m1_1"); break; // clamp(out, -1, 1)
 		case 3:
-			printf(".sat"); break; // clamp(out, 0, 1)
+			printf(".clamp_0_1"); break; // clamp(out, 0, 1)
 		default:
 			break;
 	}
