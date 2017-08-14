@@ -89,6 +89,7 @@ static RegCtrl DecodeRegCtrl(Regs regs)
 		case 13:
 			decoded.ADDWriteUnit = RegWrite2;
 			decoded.clauseStart = true;
+			break;
 		case 15:
 			decoded.FMAWriteUnit = RegWrite2;
 			decoded.ADDWriteUnit = RegWrite3;
@@ -293,13 +294,14 @@ static const FMAOpInfo FMAOpInfos[] = {
 	{ 0xe0137, "F2U", FMAOneSrc },
 	{ 0xe0178, "I2F", FMAOneSrc },
 	{ 0xe0179, "U2F", FMAOneSrc },
+	{ 0xe032c, "NOP",  FMAOneSrc },
 	{ 0xe032d, "MOV",  FMAOneSrc },
 	{ 0xe0365, "FRCP_PT1", FMAOneSrc },
 	{ 0xe038d, "FRCP_PT4", FMAOneSrc },
-	{ 0xe0b80, "IMAX", FMATwoSrc },
-	{ 0xe0bc0, "UMAX", FMATwoSrc },
-	{ 0xe0c00, "IMIN", FMATwoSrc },
-	{ 0xe0c40, "UMIN", FMATwoSrc },
+	{ 0xe0b80, "IMAX3", FMAThreeSrc },
+	{ 0xe0bc0, "UMAX3", FMAThreeSrc },
+	{ 0xe0c00, "IMIN3", FMAThreeSrc },
+	{ 0xe0c40, "UMIN3", FMAThreeSrc },
 	{ 0xe0f40, "CSEL", FMAThreeSrc }, // src2 != 0 ? src1 : src0
 	{ 0xe7800, "IMAD", FMAThreeSrc },
 	{ 0xe78db, "POPCNT", FMAOneSrc },
@@ -409,11 +411,19 @@ static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 		case FMATwoSrcFmod:
 			if (FMA.op & 0x10)
 				printf("-");
+			if (FMA.op & 0x200)
+				printf("abs(");
 			DumpSrc(FMA.src0, regs, consts, true);
+			if (FMA.op & 0x200)
+				printf(")");
 			printf(", ");
 			if (FMA.op & 0x20)
 				printf("-");
+			if (FMA.op & 0x8)
+				printf("abs(");
 			DumpSrc(FMA.op & 0x7, regs, consts, true);
+			if (FMA.op & 0x8)
+				printf(")");
 			break;
 		case FMAFcmp:
 			if (FMA.op & 0x200)
@@ -440,13 +450,25 @@ static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 		case FMAThreeSrcFmod:
 			if (FMA.op & (1 << 14))
 				printf("-");
+			if (FMA.op & (1 << 9))
+				printf("abs(");
 			DumpSrc(FMA.src0, regs, consts, true);
+			if (FMA.op & (1 << 9))
+				printf(")");
 			printf(", ");
+			if (FMA.op & (1 << 16))
+				printf("abs(");
 			DumpSrc(FMA.op & 0x7, regs, consts, true);
+			if (FMA.op & (1 << 16))
+				printf(")");
 			printf(", ");
 			if (FMA.op & (1 << 15))
 				printf("-");
+			if (FMA.op & (1 << 17))
+				printf("abs(");
 			DumpSrc((FMA.op >> 3) & 0x7, regs, consts, true);
+			if (FMA.op & (1 << 17))
+				printf(")");
 			break;
 		case FMAFourSrc:
 			DumpSrc(FMA.src0, regs, consts, true);
@@ -489,7 +511,8 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x07937, "F2U", ADDOneSrc },
 	{ 0x07978, "I2F", ADDOneSrc },
 	{ 0x07979, "U2F", ADDOneSrc },
-	{ 0x07b28, "MOV",  ADDTwoSrc }, // the two sources are always the same?
+	{ 0x07b2c, "NOP",  ADDOneSrc },
+	{ 0x07b2d, "MOV",  ADDOneSrc },
 	{ 0x0ce00, "FRCP_PT2", ADDOneSrc },
 	{ 0x0f640, "ICMP.GL.GT", ADDTwoSrc }, // src0 > src1 ? 1 : 0
 	{ 0x0f648, "ICMP.GL.GE", ADDTwoSrc },
@@ -524,7 +547,7 @@ static ADDOpInfo findADDOpInfo(unsigned op)
 				opCmp = op & ~0x7;
 				break;
 			case ADDTwoSrcFmod:
-				opCmp = op & ~0x3ff;
+				opCmp = op & ~0x1fff;
 				break;
 			case ADDFcmp:
 				opCmp = op & ~0x7ff;
@@ -576,11 +599,19 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 		case ADDTwoSrcFmod:
 			if (ADD.op & 0x10)
 				printf("-");
+			if (ADD.op & 0x1000)
+				printf("abs(");
 			DumpSrc(ADD.src0, regs, consts, false);
+			if (ADD.op & 0x1000)
+				printf(")");
 			printf(", ");
 			if (ADD.op & 0x20)
 				printf("-");
+			if (ADD.op & 0x8)
+				printf("abs(");
 			DumpSrc(ADD.op & 0x7, regs, consts, false);
+			if (ADD.op & 0x8)
+				printf(")");
 			break;
 		case ADDFcmp:
 			if (ADD.op & 0x400) {
