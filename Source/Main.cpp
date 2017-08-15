@@ -106,6 +106,7 @@ bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint
 	case COOKIE("FRAG"):
 	case COOKIE("COMP"):
 	case COOKIE("CVER"):
+	case COOKIE("CGEO"):
 		PrintBlocks(indent + 1, blockBlob, size);
 		break;
 	case COOKIE("CMMN"):
@@ -269,10 +270,6 @@ bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint
 		iprintf(indent, "\tunk6 = 0x%08x\n", block->unk6);
 		iprintf(indent, "\tunk7 = 0x%08x\n", block->unk7);
 
-		assert(block->unk2 == 0x0);
-		assert(block->unk3 == 0x0);
-		//assert(block->unk4 == 0x20);
-		//assert(block->unk5 == 0x0);
 		// XXX:Sometimes different
 		// Probably a bitfield
 		//assert(block->unk6 == 0x0);

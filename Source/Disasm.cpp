@@ -303,6 +303,12 @@ static const FMAOpInfo FMAOpInfos[] = {
 	{ 0xe0c00, "IMIN3", FMAThreeSrc },
 	{ 0xe0c40, "UMIN3", FMAThreeSrc },
 	{ 0xe0f40, "CSEL", FMAThreeSrc }, // src2 != 0 ? src1 : src0
+	// This acts like a normal 32-bit add, except that it sets a flag on
+	// overflow that gets listened to by load/store instructions in the ADD
+	// part of the instruction, and added appropriately to the upper 32 bits of
+	// the address. It lets you efficiently add a 32-bit offset to a 64-bit
+	// pointer when loading/storing.
+	{ 0xe1c80, "ADD_ADDR", FMATwoSrc },
 	{ 0xe7800, "IMAD", FMAThreeSrc },
 	{ 0xe78db, "POPCNT", FMAOneSrc },
 };
@@ -499,6 +505,7 @@ struct ADDOpInfo {
 	unsigned op;
 	char name[20];
 	ADDSrcType srcType;
+	bool hasDataReg;
 };
 
 static const ADDOpInfo ADDOpInfos[] = {
@@ -513,6 +520,14 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x07979, "U2F", ADDOneSrc },
 	{ 0x07b2c, "NOP",  ADDOneSrc },
 	{ 0x07b2d, "MOV",  ADDOneSrc },
+	{ 0x0c188, "LOAD.i32", ADDTwoSrc, true },
+	{ 0x0c1c8, "LOAD.v2i32", ADDTwoSrc, true },
+	{ 0x0c208, "LOAD.v4i32", ADDTwoSrc, true },
+	{ 0x0c248, "STORE.v4i32", ADDTwoSrc, true },
+	{ 0x0ca88, "LOAD.v3i32", ADDTwoSrc, true },
+	{ 0x0cb88, "STORE.v3i32", ADDTwoSrc, true },
+	{ 0x0c588, "STORE.i32", ADDTwoSrc, true },
+	{ 0x0c5c8, "STORE.v2i32", ADDTwoSrc, true },
 	{ 0x0ce00, "FRCP_PT2", ADDOneSrc },
 	{ 0x0f640, "ICMP.GL.GT", ADDTwoSrc }, // src0 > src1 ? 1 : 0
 	{ 0x0f648, "ICMP.GL.GE", ADDTwoSrc },
@@ -564,7 +579,7 @@ static ADDOpInfo findADDOpInfo(unsigned op)
 	return info;
 }
 
-static void DumpADD(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
+static void DumpADD(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts, unsigned dataReg)
 {
 	printf("# ADD: %016" PRIx64 "\n", word);
 	ADD ADD;
@@ -633,6 +648,9 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 				printf(")");
 			}
 	}
+	if (info.hasDataReg) {
+		printf(", R%d", dataReg);
+	}
 	printf("\n");
 }
 
@@ -645,23 +663,35 @@ struct AluInstr {
 	uint64_t ADDBits;
 };
 
-void DumpInstr(const AluInstr &instr, Regs nextRegs, uint64_t *consts)
+void DumpInstr(const AluInstr &instr, Regs nextRegs, uint64_t *consts, unsigned dataReg)
 {
 	printf("# regs: %016" PRIx32 "\n", instr.regBits);
 	Regs regs;
 	memcpy((char *) &regs, (char *) &instr.regBits, sizeof(regs));
 	DumpRegs(regs);
 	DumpFMA(instr.FMABits, regs, nextRegs, consts);
-	DumpADD(instr.ADDBits, regs, nextRegs, consts);
+	DumpADD(instr.ADDBits, regs, nextRegs, consts, dataReg);
 }
+
+struct Header {
+	uint64_t unk0 : 18;
+	uint64_t dataReg : 6;
+	uint64_t scoreboardDeps : 6;
+	uint64_t unk1 : 2; // future expansion for scoreboardDeps?
+	uint64_t scoreboardIndex : 3;
+	uint64_t clauseType : 4;
+	uint64_t unk2 : 1; // part of clauseType?
+	uint64_t nextClauseType : 4;
+	uint64_t unk3 : 1; // part of nextClauseType?
+};
 
 void DumpClause(uint32_t *words, unsigned *size)
 {
 	// State for a decoded clause
 	AluInstr instrs[8] = {};
 	uint64_t consts[6] = {};
-	unsigned num_instrs = 0;
-	uint64_t header = 0;
+	unsigned numInstrs = 0;
+	uint64_t headerBits = 0;
 
 	unsigned i;
 	for (i = 0; ; i++, words += 4) {
@@ -700,14 +730,14 @@ void DumpClause(uint32_t *words, unsigned *size)
 						case 0x3:
 							mainInstr.ADDBits |= bits(words[3], 29, 32) << 17;
 							instrs[1] = mainInstr;
-							num_instrs = 2;
+							numInstrs = 2;
 							done = stop;
 							break;
 						case 0x4:
 							instrs[2].ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
 							instrs[2].FMABits |= bits(words[2], 19, 32) << 10;
 							consts[0] = const0;
-							num_instrs = 3;
+							numInstrs = 3;
 							done = stop;
 							break;
 						case 0x1:
@@ -717,7 +747,7 @@ void DumpClause(uint32_t *words, unsigned *size)
 							mainInstr.ADDBits |= bits(words[3], 26, 29) << 17;
 							instrs[3] = mainInstr;
 							if ((tag & 0x7) == 0x5) {
-								num_instrs = 4;
+								numInstrs = 4;
 								done = stop;
 							}
 							break;
@@ -725,7 +755,7 @@ void DumpClause(uint32_t *words, unsigned *size)
 							instrs[5].ADDBits = bits(words[3], 0, 17) | bits(words[3], 29, 32) << 17;
 							instrs[5].FMABits |= bits(words[2], 19, 32) << 10;
 							consts[0] = const0;
-							num_instrs = 6;
+							numInstrs = 6;
 							done = stop;
 							break;
 						case 0x7:
@@ -733,7 +763,7 @@ void DumpClause(uint32_t *words, unsigned *size)
 							instrs[5].FMABits |= bits(words[2], 19, 32) << 10;
 							mainInstr.ADDBits |= bits(words[3], 26, 29) << 17;
 							instrs[6] = mainInstr;
-							num_instrs = 7;
+							numInstrs = 7;
 							done = stop;
 							break;
 						default:
@@ -741,15 +771,15 @@ void DumpClause(uint32_t *words, unsigned *size)
 					}
 					break;
 				case 0x1:
-					header = bits(words[2], 19, 32) | ((uint64_t) words[3] << (32 - 19));
+					headerBits = bits(words[2], 19, 32) | ((uint64_t) words[3] << (32 - 19));
 					mainInstr.ADDBits |= (tag & 0x7) << 17;
 					instrs[0] = mainInstr;
-					num_instrs = 1;
+					numInstrs = 1;
 					done = stop;
 					// only constants can come after this
 					break;
 				case 0x5:
-					header = bits(words[2], 19, 32) | ((uint64_t) words[3] << (32 - 19));
+					headerBits = bits(words[2], 19, 32) | ((uint64_t) words[3] << (32 - 19));
 					mainInstr.ADDBits |= (tag & 0x7) << 17;
 					instrs[0] = mainInstr;
 					break;
@@ -759,7 +789,7 @@ void DumpClause(uint32_t *words, unsigned *size)
 					mainInstr.ADDBits |= (tag & 0x7) << 17;
 					instrs[idx] = mainInstr;
 					consts[0] |= (bits(words[2], 19, 32) | ((uint64_t) words[3] << 13)) << 19;
-					num_instrs = idx + 1;
+					numInstrs = idx + 1;
 					done = stop;
 					break;
 				}
@@ -825,11 +855,14 @@ void DumpClause(uint32_t *words, unsigned *size)
 
 	*size = i + 1;
 
-	printf("# header: %012" PRIx64 "\n", header);
+	printf("# header: %012" PRIx64 "\n", headerBits);
 
-	for (i = 0; i < num_instrs; i++) {
+	Header header;
+	memcpy((char *) &header, (char *) &headerBits, sizeof(Header));
+
+	for (i = 0; i < numInstrs; i++) {
 		Regs nextRegs;
-		if (i + 1 == num_instrs) {
+		if (i + 1 == numInstrs) {
 			memcpy((char *) &nextRegs, (char *) &instrs[0].regBits,
 					sizeof(nextRegs));
 		} else {
@@ -837,7 +870,7 @@ void DumpClause(uint32_t *words, unsigned *size)
 					sizeof(nextRegs));
 		}
 
-		DumpInstr(instrs[i], nextRegs, consts);
+		DumpInstr(instrs[i], nextRegs, consts, header.dataReg);
 	}
 
 	for (int i = 0; i < 6; i++) {
