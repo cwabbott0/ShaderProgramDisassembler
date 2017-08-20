@@ -89,8 +89,8 @@ static RegCtrl DecodeRegCtrl(Regs regs)
 			decoded.clauseStart = true;
 			break;
 		case 15:
-			decoded.FMAWriteUnit = RegWrite2;
-			decoded.ADDWriteUnit = RegWrite3;
+			decoded.FMAWriteUnit = RegWrite3;
+			decoded.ADDWriteUnit = RegWrite2;
 			break;
 		default:
 			printf("# unknown reg ctrl %d\n", ctrl);
