@@ -309,6 +309,9 @@ static const FMAOpInfo FMAOpInfos[] = {
 	// the address. It lets you efficiently add a 32-bit offset to a 64-bit
 	// pointer when loading/storing.
 	{ 0xe1c80, "ADD_ADDR", FMATwoSrc },
+	// Similar to the above, but used for normal additions (paired with
+	// ADD_HIGH32 in the ADD slot to do 64-bit addition).
+	{ 0xe1cc0, "ADD_LOW32", FMATwoSrc },
 	{ 0xe7800, "IMAD", FMAThreeSrc },
 	{ 0xe78db, "POPCNT", FMAOneSrc },
 };
@@ -520,6 +523,7 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x07979, "U2F", ADDOneSrc },
 	{ 0x07b2c, "NOP",  ADDOneSrc },
 	{ 0x07b2d, "MOV",  ADDOneSrc },
+	{ 0x07f18, "ADD_HIGH32", ADDTwoSrc },
 	{ 0x0c188, "LOAD.i32", ADDTwoSrc, true },
 	{ 0x0c1c8, "LOAD.v2i32", ADDTwoSrc, true },
 	{ 0x0c208, "LOAD.v4i32", ADDTwoSrc, true },
