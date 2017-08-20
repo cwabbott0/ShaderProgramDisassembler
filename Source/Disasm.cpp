@@ -48,8 +48,6 @@ static RegCtrl DecodeRegCtrl(Regs regs)
 	if (regs.ctrl == 0) {
 		ctrl = regs.reg1 >> 2;
 		decoded.readReg0 = !(regs.reg1 & 0x2);
-		if ((regs.reg1 & 0x1))
-			printf("# unknown regctrl bit set\n");
 		decoded.readReg1 = false;
 	} else {
 		ctrl = regs.ctrl;
@@ -142,7 +140,13 @@ static void DumpConstImm(uint32_t imm)
 static void DumpSrc(unsigned src, Regs srcs, uint64_t *consts, bool isFMA)
 {
 	switch (src) {
-		case 0: printf("R%d", srcs.reg0); break;
+		case 0: {
+			unsigned reg = srcs.reg0;
+			if (srcs.ctrl == 0)
+				reg |= (srcs.reg1 & 1) << 5;
+			printf("R%d", reg);
+			break;
+		}
 		case 1: printf("R%d", srcs.reg1); break;
 		case 2: printf("R%d", srcs.reg3); break;
 		case 3:
