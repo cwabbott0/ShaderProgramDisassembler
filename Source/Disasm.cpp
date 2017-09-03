@@ -115,16 +115,37 @@ static unsigned GetRegToWrite(RegWriteUnit unit, Regs regs)
 
 static void DumpRegs(Regs srcs)
 {
-	printf("reg0: R%d\n", srcs.reg0);
-	printf("reg1: R%d\n", srcs.reg1);
-	printf("reg2: R%d\n", srcs.reg2);
-	printf("reg3: R%d\n", srcs.reg3);
-	printf("ctrl: %d\n", srcs.ctrl);
+	RegCtrl ctrl = DecodeRegCtrl(srcs);
+	printf("# ");
+	if (ctrl.readReg0) {
+		unsigned reg0 = srcs.reg0;
+		if (srcs.ctrl == 0)
+			reg0 |= (srcs.reg1 & 1) << 5;
+		printf("port 0: R%d ", srcs.reg0);
+	}
+
+	if (ctrl.readReg1)
+		printf("port 1: R%d ", srcs.reg1);
+
+	if (ctrl.FMAWriteUnit == RegWrite2)
+		printf("port 2: R%d (write FMA) ", srcs.reg2);
+	else if (ctrl.ADDWriteUnit == RegWrite2)
+		printf("port 2: R%d (write ADD) ", srcs.reg2);
+
+	if (ctrl.FMAWriteUnit == RegWrite3)
+		printf("port 3: R%d (write FMA) ", srcs.reg3);
+	else if (ctrl.ADDWriteUnit == RegWrite3)
+		printf("port 3: R%d (write ADD) ", srcs.reg3);
+	else if (ctrl.readReg3)
+		printf("port 3: R%d (read) ", srcs.reg3);
+
 	if (srcs.uniformConst) {
 		if (srcs.uniformConst & 0x80) {
-			printf("uniform: U%d\n", (srcs.uniformConst & 0x7f) * 2);
+			printf("uniform: U%d", (srcs.uniformConst & 0x7f) * 2);
 		}
 	}
+
+	printf("\n");
 }
 
 static void DumpConstImm(uint32_t imm)
@@ -693,6 +714,31 @@ struct Header {
 	uint64_t unk3 : 1; // part of nextClauseType?
 };
 
+void DumpHeader(Header header)
+{
+	if (header.clauseType != 0) {
+		printf("id(%d)", header.scoreboardIndex);
+		if (header.scoreboardDeps != 0) {
+			printf(", next-wait(");
+			bool first = true;
+			for (unsigned i = 0; i < 6; i++) {
+				if (header.scoreboardDeps & (1 << i)) {
+					if (!first) {
+						printf(", ");
+					}
+					printf("%d", i);
+					first = false;
+				}
+			}
+			printf(")");
+		}
+		printf("\n");
+	}
+
+	printf("# clause type %d, next clause type %d\n",
+		   header.clauseType, header.nextClauseType);
+}
+
 void DumpClause(uint32_t *words, unsigned *size)
 {
 	// State for a decoded clause
@@ -864,10 +910,11 @@ void DumpClause(uint32_t *words, unsigned *size)
 	*size = i + 1;
 
 	printf("# header: %012" PRIx64 "\n", headerBits);
-
 	Header header;
 	memcpy((char *) &header, (char *) &headerBits, sizeof(Header));
+	DumpHeader(header);
 
+	printf("{\n");
 	for (i = 0; i < numInstrs; i++) {
 		Regs nextRegs;
 		if (i + 1 == numInstrs) {
@@ -880,6 +927,7 @@ void DumpClause(uint32_t *words, unsigned *size)
 
 		DumpInstr(instrs[i], nextRegs, consts, header.dataReg);
 	}
+	printf("}\n");
 
 	for (int i = 0; i < 6; i++) {
 		printf("# const%d: %08x\n", 2 * i, consts[i] & 0xffffffff);
@@ -899,9 +947,7 @@ void DumpInstructions(unsigned indent, uint8_t* instBlob, uint32_t size)
 		if (memcmp(words, zero, 4 * sizeof(uint32_t)) == 0)
 			break;
 		unsigned size;
-		printf("{\n");
 		DumpClause(words, &size);
-		printf("}\n");
 		words += size * 4;
 	}
 }
