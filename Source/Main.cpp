@@ -370,6 +370,9 @@ bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint
 	case COOKIE("AINF"):
 		//TODO
 		break;
+	case COOKIE("VLKN"):
+		// TODO vulkan stuff
+		break;
 
 	default:
 	{
