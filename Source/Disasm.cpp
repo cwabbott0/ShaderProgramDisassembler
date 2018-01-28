@@ -745,6 +745,7 @@ void DumpClause(uint32_t *words, unsigned *size)
 	AluInstr instrs[8] = {};
 	uint64_t consts[6] = {};
 	unsigned numInstrs = 0;
+	unsigned numConsts = 0;
 	uint64_t headerBits = 0;
 
 	unsigned i;
@@ -792,6 +793,7 @@ void DumpClause(uint32_t *words, unsigned *size)
 							instrs[2].FMABits |= bits(words[2], 19, 32) << 10;
 							consts[0] = const0;
 							numInstrs = 3;
+							numConsts = 1;
 							done = stop;
 							break;
 						case 0x1:
@@ -810,6 +812,7 @@ void DumpClause(uint32_t *words, unsigned *size)
 							instrs[5].FMABits |= bits(words[2], 19, 32) << 10;
 							consts[0] = const0;
 							numInstrs = 6;
+							numConsts = 1;
 							done = stop;
 							break;
 						case 0x7:
@@ -843,6 +846,7 @@ void DumpClause(uint32_t *words, unsigned *size)
 					mainInstr.ADDBits |= (tag & 0x7) << 17;
 					instrs[idx] = mainInstr;
 					consts[0] |= (bits(words[2], 19, 32) | ((uint64_t) words[3] << 13)) << 19;
+					numConsts = 1;
 					numInstrs = idx + 1;
 					done = stop;
 					break;
@@ -893,6 +897,8 @@ void DumpClause(uint32_t *words, unsigned *size)
 						default:
 							printf("# unknown pos 0x%x\n", pos);
 					}
+					if (numConsts < const_idx + 2)
+						numConsts = const_idx + 2;
 					consts[const_idx] = const0;
 					consts[const_idx + 1] = const1;
 					done = stop;
@@ -929,7 +935,7 @@ void DumpClause(uint32_t *words, unsigned *size)
 	}
 	printf("}\n");
 
-	for (int i = 0; i < 6; i++) {
+	for (int i = 0; i < numConsts; i++) {
 		printf("# const%d: %08x\n", 2 * i, consts[i] & 0xffffffff);
 		printf("# const%d: %08x\n", 2 * i + 1, consts[i] >> 32);
 	}
