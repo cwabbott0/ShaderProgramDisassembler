@@ -97,9 +97,9 @@ bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint
 	case COOKIE("VEHW"):
 	{
 		Block_VEHW* block = reinterpret_cast<Block_VEHW*>(blockBlob);
-		assert(block->unk2 == 0xb);
-		assert(block->unk3 == 0x0);
-		assert(block->unk4 == 0x0);
+		//assert(block->unk2 == 0xb);
+		//assert(block->unk3 == 0x0);
+		//assert(block->unk4 == 0x0);
 	}
 	break;
 	case COOKIE("VERT"):
