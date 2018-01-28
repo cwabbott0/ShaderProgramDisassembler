@@ -158,6 +158,22 @@ static void DumpConstImm(uint32_t imm)
 	printf("%f (0x%08x)", fi.f, imm);
 }
 
+static uint64_t GetConst(uint64_t *consts, Regs srcs)
+{
+	unsigned low_bits = srcs.uniformConst & 0xf;
+	uint64_t imm;
+	switch (srcs.uniformConst >> 4) {
+		case 4: imm = consts[0]; break;
+		case 5: imm = consts[1]; break;
+		case 6: imm = consts[2]; break;
+		case 7: imm = consts[3]; break;
+		case 2: imm = consts[4]; break;
+		case 3: imm = consts[5]; break;
+		default: assert(0); break;
+	}
+	return imm | low_bits;
+}
+
 static void DumpSrc(unsigned src, Regs srcs, uint64_t *consts, bool isFMA)
 {
 	switch (src) {
@@ -272,8 +288,14 @@ static const FMAOpInfo FMAOpInfos[] = {
 	{ 0x4ff98, "ADD", FMATwoSrc },
 	{ 0x4ffd8, "SUB", FMATwoSrc },
 	{ 0x4fff0, "SUBB", FMATwoSrc },
-	{ 0x50180, "FRCP_PT5", FMATwoSrc },
+	// compute FMA of first three sources, then set exponent to the fourth
+	// source (as an integer).
+	{ 0x50000, "FMA_RSCALE", FMAFourSrc },
+	// Seems to compute src2 - src0 * src1... why don't they just use FMA?
 	{ 0x528c0, "FRCP_PT3", FMAThreeSrc },
+	// compute FMA of first three sources, then add the fourth argument to the
+	// scale (modify scale)
+	{ 0x54000, "FMA_MSCALE", FMAFourSrc },
 	{ 0x58000, "FADD", FMATwoSrcFmod },
 	{ 0x5c000, "CSEL.FEQ", FMAFourSrc },
 	{ 0x5c200, "CSEL.FGT", FMAFourSrc },
@@ -319,15 +341,28 @@ static const FMAOpInfo FMAOpInfos[] = {
 	{ 0xe0137, "F2U", FMAOneSrc },
 	{ 0xe0178, "I2F", FMAOneSrc },
 	{ 0xe0179, "U2F", FMAOneSrc },
+	{ 0xe0199, "U32TOU16", FMAOneSrc }, // out = in & 0xffff
 	{ 0xe032c, "NOP",  FMAOneSrc },
 	{ 0xe032d, "MOV",  FMAOneSrc },
-	{ 0xe0365, "FRCP_PT1", FMAOneSrc },
-	{ 0xe038d, "FRCP_PT4", FMAOneSrc },
+	// From the ARM patent US20160364209A1:
+	// "Decompose v (the input) into numbers x1 and s such that v = x1 * 2^s,
+	// and x1 is a floating point value in a predetermined range where the
+	// value 1 is within the range and not at one extremity of the range (e.g.
+	// choose a range where 1 is towards middle of range)."
+	// 
+	// This computes x1.
+	{ 0xe0345, "LOG_FREXPM", FMAOneSrc },
+	{ 0xe0365, "FRCP_TABLE", FMAOneSrc },
+	// Compute required exponent for reciprocal (negate it, accounting for the offset.)
+	{ 0xe038d, "FRCP_EXP", FMAOneSrc },
+	{ 0xe03c5, "LOG_FREXPE", FMAOneSrc },
 	{ 0xe0b80, "IMAX3", FMAThreeSrc },
 	{ 0xe0bc0, "UMAX3", FMAThreeSrc },
 	{ 0xe0c00, "IMIN3", FMAThreeSrc },
 	{ 0xe0c40, "UMIN3", FMAThreeSrc },
 	{ 0xe0f40, "CSEL", FMAThreeSrc }, // src2 != 0 ? src1 : src0
+	{ 0xe1845, "CEIL", FMAOneSrc },
+	{ 0xe1885, "FLOOR", FMAOneSrc },
 	// This acts like a normal 32-bit add, except that it sets a flag on
 	// overflow that gets listened to by load/store instructions in the ADD
 	// part of the instruction, and added appropriately to the upper 32 bits of
@@ -527,6 +562,8 @@ enum ADDSrcType {
 	ADDTwoSrc,
 	ADDTwoSrcFmod,
 	ADDFcmp,
+	ADDTexCompact, // texture instruction with embedded sampler
+	ADDTex, // texture instruction with sampler/etc. in uniform port
 };
 
 struct ADDOpInfo {
@@ -546,18 +583,40 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x07937, "F2U", ADDOneSrc },
 	{ 0x07978, "I2F", ADDOneSrc },
 	{ 0x07979, "U2F", ADDOneSrc },
+	{ 0x07999, "U32TOU16", ADDOneSrc },
 	{ 0x07b2c, "NOP",  ADDOneSrc },
 	{ 0x07b2d, "MOV",  ADDOneSrc },
+	{ 0x07b8d, "FRCP_EXP", ADDOneSrc },
+	// From the ARM patent US20160364209A1:
+	// "Decompose v (the input) into numbers x1 and s such that v = x1 * 2^s,
+	// and x1 is a floating point value in a predetermined range where the
+	// value 1 is within the range and not at one extremity of the range (e.g.
+	// choose a range where 1 is towards middle of range)."
+	// 
+	// This computes s.
+	{ 0x07bc5, "FLOG_FREXPE", ADDOneSrc },
+	{ 0x07d45, "CEIL", ADDOneSrc },
+	{ 0x07d85, "FLOOR", ADDOneSrc },
 	{ 0x07f18, "ADD_HIGH32", ADDTwoSrc },
+	{ 0x0b000, "TEX", ADDTexCompact, true },
 	{ 0x0c188, "LOAD.i32", ADDTwoSrc, true },
 	{ 0x0c1c8, "LOAD.v2i32", ADDTwoSrc, true },
 	{ 0x0c208, "LOAD.v4i32", ADDTwoSrc, true },
 	{ 0x0c248, "STORE.v4i32", ADDTwoSrc, true },
-	{ 0x0ca88, "LOAD.v3i32", ADDTwoSrc, true },
-	{ 0x0cb88, "STORE.v3i32", ADDTwoSrc, true },
 	{ 0x0c588, "STORE.i32", ADDTwoSrc, true },
 	{ 0x0c5c8, "STORE.v2i32", ADDTwoSrc, true },
-	{ 0x0ce00, "FRCP_PT2", ADDOneSrc },
+	{ 0x0c648, "LOAD.u16", ADDTwoSrc, true }, // zero-extends
+	{ 0x0ca88, "LOAD.v3i32", ADDTwoSrc, true },
+	{ 0x0cb88, "STORE.v3i32", ADDTwoSrc, true },
+	// Produce appropriate scale
+	{ 0x0ce00, "FRCP_SCALE", ADDOneSrc },
+	// Used in the argument reduction for log.
+	// See the ARM patent for more information.
+	{ 0x0ce60, "FRCP_APPROX", ADDOneSrc },
+	{ 0x0cf50, "SIN_TABLE", ADDOneSrc },
+	{ 0x0cf51, "COS_TABLE", ADDOneSrc },
+	{ 0x0cf60, "FLOG2_TABLE", ADDOneSrc },
+	{ 0x0cf64, "FLOGE_TABLE", ADDOneSrc },
 	{ 0x0f640, "ICMP.GL.GT", ADDTwoSrc }, // src0 > src1 ? 1 : 0
 	{ 0x0f648, "ICMP.GL.GE", ADDTwoSrc },
 	{ 0x0f650, "UCMP.GL.GT", ADDTwoSrc },
@@ -577,6 +636,7 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x1dd50, "XOR",  ADDTwoSrc },
 	{ 0x1dd84, "RSHIFT", ADDTwoSrc },
 	{ 0x1dda4, "ARSHIFT", ADDTwoSrc },
+	{ 0x1ae60, "TEX", ADDTex, true },
 };
 
 static ADDOpInfo findADDOpInfo(unsigned op)
@@ -590,11 +650,17 @@ static ADDOpInfo findADDOpInfo(unsigned op)
 			case ADDTwoSrc:
 				opCmp = op & ~0x7;
 				break;
+			case ADDTex:
+				opCmp = op & ~0xf;
+				break;
 			case ADDTwoSrcFmod:
 				opCmp = op & ~0x1fff;
 				break;
 			case ADDFcmp:
 				opCmp = op & ~0x7ff;
+				break;
+			case ADDTexCompact:
+				opCmp = op & ~0x3ff;
 				break;
 		}
 		if (ADDOpInfos[i].op == opCmp)
@@ -605,8 +671,36 @@ static ADDOpInfo findADDOpInfo(unsigned op)
 	snprintf(info.name, sizeof(info.name), "op%04x", op);
 	info.op = op;
 	info.srcType = ADDTwoSrc;
+	info.hasDataReg = true;
 	return info;
 }
+
+struct TexCtrl {
+	unsigned samplerIndex : 4; // also used to signal indirects
+	unsigned texIndex : 7;
+	bool noMergeIndex : 1; // whether to merge (direct) sampler & texture indices
+	bool filter : 1; // use the usual filtering pipeline (0 for texelFetch & textureGather)
+	unsigned unk0 : 2;
+	bool texelOffset : 1; // *Offset()
+	bool isShadow : 1;
+	bool isArray : 1;
+	unsigned texType : 2; // 2D, 3D, Cube, Buffer
+	bool computeLOD : 1; // 0 for *Lod()
+	bool notSupplyLOD : 1; // 0 for *Lod() or when a bias is applied
+	bool calcGradients : 1; // 0 for *Grad()
+	unsigned unk1 : 1;
+	unsigned resultType : 4; // integer, unsigned, float TODO: why is this 4 bits?
+	unsigned unk2 : 4;
+};
+
+struct DualTexCtrl {
+	unsigned samplerIndex0 : 2;
+	unsigned unk0 : 2;
+	unsigned texIndex0 : 2;
+	unsigned samplerIndex1 : 2;
+	unsigned texIndex1 : 2;
+	unsigned unk1 : 22;
+};
 
 static void DumpADD(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts, unsigned dataReg)
 {
@@ -635,6 +729,120 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts, u
 		case ADDOneSrc:
 			DumpSrc(ADD.src0, regs, consts, false);
 			break;
+		case ADDTex:
+		case ADDTexCompact: {
+			int texIndex;
+			int samplerIndex;
+			bool dualTex = false;
+			if (info.srcType == ADDTexCompact) {
+				texIndex = (ADD.op >> 3) & 0x7;
+				samplerIndex = (ADD.op >> 7) & 0x7;
+				bool unknown = (ADD.op & 0x40);
+				// TODO: figure out if the unknown bit is ever 0
+				if (!unknown)
+					printf("unknown ");
+			} else {
+				uint64_t constVal = GetConst(consts, regs);
+				uint32_t controlBits = (ADD.op & 0x8) ? (constVal >> 32) : constVal;
+				TexCtrl ctrl;
+				memcpy((char *) &ctrl, (char *) &controlBits, sizeof(ctrl));
+
+				// TODO: figure out what actually triggers dual-tex
+				if (ctrl.resultType == 9) {
+					DualTexCtrl dualCtrl;
+					memcpy((char *) &dualCtrl, (char *) &controlBits, sizeof(ctrl));
+					printf("(dualtex) tex0:%d samp0:%d tex1:%d samp1:%d ",
+							dualCtrl.texIndex0, dualCtrl.samplerIndex0,
+							dualCtrl.texIndex1, dualCtrl.samplerIndex1);
+					if (dualCtrl.unk0 != 3)
+						printf("unk:%d ", dualCtrl.unk0);
+					dualTex = true;
+				} else {
+					if (ctrl.noMergeIndex) {
+						texIndex = ctrl.texIndex;
+						samplerIndex = ctrl.samplerIndex;
+					} else {
+						texIndex = samplerIndex = ctrl.texIndex;
+						unsigned unk = ctrl.samplerIndex >> 2;
+						if (unk != 3)
+							printf("unk:%d ", unk);
+						if (ctrl.samplerIndex & 1)
+							texIndex = -1;
+						if (ctrl.samplerIndex & 2)
+							samplerIndex = -1;
+					}
+
+					if (ctrl.unk0 != 3)
+						printf("unk0:%d ", ctrl.unk0);
+					if (ctrl.unk1)
+						printf("unk1 ");
+					if (ctrl.unk2 != 0xf)
+						printf("unk2:%x ", ctrl.unk2);
+
+					switch (ctrl.resultType) {
+						case 0x4:
+							printf("f32 "); break;
+						case 0xe:
+							printf("i32 "); break;
+						case 0xf:
+							printf("u32 "); break;
+						default:
+							printf("unktype(%x) ", ctrl.resultType);
+					}
+
+					switch (ctrl.texType) {
+						case 0:
+							printf("cube "); break;
+						case 1:
+							printf("buffer "); break;
+						case 2:
+							printf("2D "); break;
+						case 3:
+							printf("3D "); break;
+					}
+
+					if (ctrl.isShadow)
+						printf("shadow ");
+					if (ctrl.isArray)
+						printf("array ");
+
+					if (!ctrl.filter) {
+						if (ctrl.calcGradients) {
+							int comp = (controlBits >> 20) & 0x3;
+							printf("txg comp:%d ", comp);
+						} else {
+							printf("txf ");
+						}
+					} else {
+						if (!ctrl.notSupplyLOD) {
+							if (ctrl.computeLOD)
+								printf("lod_bias ");
+							else
+								printf("lod ");
+						}
+
+						if (!ctrl.calcGradients)
+							printf("grad ");
+					}
+
+					if (ctrl.texelOffset)
+						printf("offset ");
+				}
+			}
+
+			if (!dualTex) {
+				if (texIndex == -1)
+					printf("tex:indirect ");
+				else
+					printf("tex:%d ", texIndex);
+
+				if (samplerIndex == -1)
+					printf("samp:indirect ");
+				else
+					printf("samp:%d ", samplerIndex);
+			}
+			// fallthrough
+		}
 		case ADDTwoSrc:
 			DumpSrc(ADD.src0, regs, consts, false);
 			printf(", ");
