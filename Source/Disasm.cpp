@@ -121,7 +121,7 @@ static void DumpRegs(Regs srcs)
 		unsigned reg0 = srcs.reg0;
 		if (srcs.ctrl == 0)
 			reg0 |= (srcs.reg1 & 1) << 5;
-		printf("port 0: R%d ", srcs.reg0);
+		printf("port 0: R%d ", reg0);
 	}
 
 	if (ctrl.readReg1)
