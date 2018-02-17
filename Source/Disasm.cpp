@@ -155,7 +155,7 @@ static void DumpConstImm(uint32_t imm)
 		uint32_t i;
 	} fi;
 	fi.i = imm;
-	printf("%f (0x%08x)", fi.f, imm);
+	printf("0x%08x /* %f */", imm, fi.f);
 }
 
 static uint64_t GetConst(uint64_t *consts, Regs srcs)
@@ -564,6 +564,8 @@ enum ADDSrcType {
 	ADDFcmp,
 	ADDTexCompact, // texture instruction with embedded sampler
 	ADDTex, // texture instruction with sampler/etc. in uniform port
+	ADDVaryingInterp,
+	ADDBlending,
 };
 
 struct ADDOpInfo {
@@ -598,6 +600,7 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x07d45, "CEIL", ADDOneSrc },
 	{ 0x07d85, "FLOOR", ADDOneSrc },
 	{ 0x07f18, "ADD_HIGH32", ADDTwoSrc },
+	{ 0x0a000, "LD_VAR", ADDVaryingInterp },
 	{ 0x0b000, "TEX", ADDTexCompact, true },
 	{ 0x0c188, "LOAD.i32", ADDTwoSrc, true },
 	{ 0x0c1c8, "LOAD.v2i32", ADDTwoSrc, true },
@@ -630,6 +633,18 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x178c0, "ADD",  ADDTwoSrc },
 	{ 0x17ac0, "SUB",  ADDTwoSrc },
 	{ 0x17c10, "ADDC", ADDTwoSrc }, // adds src0 to the bottom bit of src1
+	// Implements alpha-to-coverage, as well as possibly the late depth and
+	// stencil tests. The first source is the existing sample mask in R60
+	// (possibly modified by gl_SampleMask), and the second source is the alpha
+	// value.  The sample mask is written right away based on the
+	// alpha-to-coverage result using the normal register write mechanism,
+	// since that doesn't need to read from any memory, and then written again
+	// later based on the result of the stencil and depth tests using the
+	// special register.
+	{ 0x191e8, "ATEST", ADDTwoSrc, true },
+	// This takes the sample coverage mask (computed by ATEST above) as a
+	// regular argument, in addition to the vec4 color in the special register.
+	{ 0x1952c, "BLEND", ADDBlending, true },
 	{ 0x1dd18, "OR",  ADDTwoSrc },
 	{ 0x1dd60, "LSHIFT", ADDTwoSrc },
 	{ 0x1dd20, "AND",  ADDTwoSrc },
@@ -645,6 +660,7 @@ static ADDOpInfo findADDOpInfo(unsigned op)
 		unsigned opCmp;
 		switch (ADDOpInfos[i].srcType) {
 			case ADDOneSrc:
+			case ADDBlending:
 				opCmp = op;
 				break;
 			case ADDTwoSrc:
@@ -661,6 +677,9 @@ static ADDOpInfo findADDOpInfo(unsigned op)
 				break;
 			case ADDTexCompact:
 				opCmp = op & ~0x3ff;
+				break;
+			case ADDVaryingInterp:
+				opCmp = op & ~0x7ff;
 				break;
 		}
 		if (ADDOpInfos[i].op == opCmp)
@@ -726,6 +745,14 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts, u
 	}
 
 	switch (info.srcType) {
+		case ADDBlending:
+			// Note: in this case, regs.uniformConst == location | 0x8
+			// This probably means we can't load uniforms or immediates in the
+			// same instruction. This re-uses the encoding that normally means
+			// "disabled", where the low 4 bits are ignored. Perhaps the extra
+			// 0x8 or'd in indicates this is happening.
+			printf("location:%d, ", regs.uniformConst & 0x7);
+			// fallthrough
 		case ADDOneSrc:
 			DumpSrc(ADD.src0, regs, consts, false);
 			break;
@@ -843,6 +870,34 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts, u
 			}
 			// fallthrough
 		}
+		case ADDVaryingInterp: {
+			if (ADD.op & 0x200)
+				printf("reuse ");
+			if (ADD.op & 0x400)
+				printf("flat ");
+			switch ((ADD.op >> 7) & 0x3) {
+				case 0: printf("per_frag "); break;
+				case 1: printf("centroid "); break;
+				case 2: break;
+				case 3: printf("explicit "); break;
+				default: break;
+			}
+			printf("vec%d ", ((ADD.op >> 5) & 0x3) + 1);
+			unsigned addr = ADD.op & 0x1f;
+			if (addr < 0b10100) {
+				// direct addr
+				printf("addr:%d", addr);
+			} else if (addr < 0b11000) {
+				// unknown
+				printf("addr:%d(unknown)", addr);
+			} else {
+				printf("addr:");
+				DumpSrc(ADD.op & 0x7, regs, consts, false);
+			}
+			printf(", ");
+			DumpSrc(ADD.src0, regs, consts, false);
+			break;
+		}	
 		case ADDTwoSrc:
 			DumpSrc(ADD.src0, regs, consts, false);
 			printf(", ");
