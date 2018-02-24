@@ -60,7 +60,7 @@ struct Block_VELA
 
 struct Block_SSYM
 {
-	uint32_t unk2;
+	uint32_t numSymbols;
 };
 
 struct Block_STRI
@@ -72,22 +72,14 @@ struct Block_STRI
 	uint32_t unk4;
 };
 
-struct Block_TYPE
-{
-	enum Type : uint32_t
-	{
-	};
-	Type type;
-};
-
 struct Block_TPGE
 {
-	uint32_t unk2;
-	uint32_t unk3;
-	uint32_t unk4;
+	uint8_t type;
+	uint8_t components;
+	uint8_t bitSize;
+	uint8_t precision;
+	uint32_t totalSize;
 	uint32_t unk5;
-	// XXX: Sometimes doesn't exist?
-//	uint32_t unk6;
 };
 
 struct Block_TPIB
@@ -115,7 +107,9 @@ struct Block_TPAR
 {
 	// TPAR
 	// Type array
-	uint32_t unk2;
+
+	// Number of array elements
+	uint32_t len;
 };
 
 struct Block_UBUF
@@ -189,7 +183,18 @@ struct Block_RLOC
 	// RLOC
 	uint32_t location; //uniform location in GL, I think
 	uint32_t unk3;
+
+};
+
+struct Block_SYMB_pt1
+{
+	uint32_t unk1;
+	uint32_t unk2;
+	uint32_t unk3;
+};
+
+struct Block_SYMB_pt2
+{
 	uint32_t unk4;
 	uint32_t unk5;
-
 };

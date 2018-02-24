@@ -143,52 +143,85 @@ bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint
 	case COOKIE("SSYM"):
 	{
 		Block_SSYM* block = reinterpret_cast<Block_SSYM*>(blockBlob);
-		iprintf(indent, "\tunk2 = 0x%08x\n", block->unk2);
+		iprintf(indent, "\tnumSymbols = 0x%08x\n", block->numSymbols);
+		blockBlob += sizeof(uint32_t);
+		for (unsigned i = 0; i < block->numSymbols; i++)
+		{
+			assert(*reinterpret_cast<uint32_t*>(blockBlob) == COOKIE("SYMB"));
+			PrintBlock(indent + 1, &blockBlob);
+		}
 
-		// XXX: Sometimes different
-		//assert(block->unk2 == 0x2);
-		// XXX: Skipping the entire SSYM because parsing of sub blocks(STRI) aren't complete
 	}
 	break;
 	case COOKIE("SYMB"):
-		break;
+	{
+		// First, the name
+		assert(*reinterpret_cast<uint32_t*>(blockBlob) == COOKIE("STRI"));
+		PrintBlock(indent + 1, &blockBlob);
+
+		// Then, 12 bytes
+		Block_SYMB_pt1 *pt1 = reinterpret_cast<Block_SYMB_pt1*>(blockBlob);
+		iprintf(indent + 1, "unk1 = 0x%08x\n", pt1->unk1);
+		iprintf(indent + 1, "unk2 = 0x%08x\n", pt1->unk2);
+		iprintf(indent + 1, "unk3 = 0x%08x\n", pt1->unk3);
+		blockBlob += sizeof(Block_SYMB_pt1);
+
+		// Then, the type
+		assert(*reinterpret_cast<uint32_t*>(blockBlob) == COOKIE("TYPE"));
+		PrintBlock(indent + 1, &blockBlob);
+
+		// Then, any relocs
+		unsigned numRelocs = *reinterpret_cast<uint32_t*>(blockBlob);
+		blockBlob += sizeof(uint32_t);
+		for (unsigned i = 0; i < numRelocs; i++)
+		{
+			assert(*reinterpret_cast<uint32_t*>(blockBlob) == COOKIE("RLOC"));
+			PrintBlock(indent + 1, &blockBlob);
+		}
+		
+		// Finally, 8 more bytes
+		Block_SYMB_pt2 *pt2 = reinterpret_cast<Block_SYMB_pt2*>(blockBlob);
+		iprintf(indent + 1, "unk4 = 0x%08x\n", pt2->unk4);
+		iprintf(indent + 1, "unk5 = 0x%08x\n", pt2->unk5);
+		blockBlob += sizeof(Block_SYMB_pt2);
+	}
+	break;
 	case COOKIE("STRI"):
 	{
 		// block.size includes the word aligned zero padding for the string
 		char* name = reinterpret_cast<char*>(blockBlob);
-		iprintf(indent + 1, "%s", name);
+		iprintf(indent + 1, "%s\n", name);
 	}
 	break;
 	case COOKIE("TYPE"):
 	{
-		auto getType = [](Block_TYPE::Type type)
-		{
-			switch (type)
-			{
-			default:
-				return "<UNKNOWN>";
-			}
-		};
-		Block_TYPE* block = reinterpret_cast<Block_TYPE*>(blockBlob);
-		iprintf(indent, "\ttype: 0x%08x - %s\n", block->type, getType(block->type));
+		PrintBlock(indent + 1, &blockBlob);
 	}
 	break;
 	case COOKIE("TPGE"):
 	{
 		Block_TPGE* block = reinterpret_cast<Block_TPGE*>(blockBlob);
-		iprintf(indent, "\tunk2 = 0x%08x\n", block->unk2);
-		iprintf(indent, "\tunk3 = 0x%08x\n", block->unk3);
-		iprintf(indent, "\tunk4 = 0x%08x\n", block->unk4);
+		switch (block->type) {
+			case 1: iprintf(indent, "\ttype = float\n"); break;
+			case 2: iprintf(indent, "\ttype = int\n"); break;
+			case 3: iprintf(indent, "\ttype = uint\n"); break;
+			case 4: iprintf(indent, "\ttype = bool\n"); break;
+			default: iprintf(indent, "\ttype = %d\n", block->type); break;
+		}
+		iprintf(indent, "\tcomponents = %d\n", block->components);
+		switch (block->precision) {
+			case 1: iprintf(indent, "\tprecision = highp\n"); break;
+			case 2: iprintf(indent, "\tprecision = mediump\n"); break;
+			case 3: iprintf(indent, "\tprecision = lowp\n"); break;
+			default: iprintf(indent, "\tprecision = %d\n", block->precision); break;
+		}
+		switch (block->bitSize) {
+			case 1: iprintf(indent, "\tbit size = 16-bit\n"); break;
+			case 2: iprintf(indent, "\tbit size = 32-bit\n"); break;
+			default: iprintf(indent, "\tbit size = %d\n", block->precision); break;
+		}
+		iprintf(indent, "\ttotal size = %d bytes\n", block->totalSize);
 		iprintf(indent, "\tunk5 = 0x%08x\n", block->unk5);
-		//iprintf(indent, "\tunk6 = 0x%08x\n", block->unk6);
-
-		// XXX: Sometimes different
-		//assert(block->unk2 == 0x01020102);
-		//assert(block->unk3 == 0x1);
-		// Probably a bitfield
-		//assert(block->unk4 == 0x8);
-		//assert(block->unk5 == 0x0 || block->unk5 == 0x45535054);
-		//assert(block->unk6 == 0x0 || block->unk6 == 0x3c);
 	}
 	break;
 	case COOKIE("TPIB"):
@@ -209,10 +242,9 @@ bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint
 	case COOKIE("TPAR"):
 	{
 		Block_TPAR* block = reinterpret_cast<Block_TPAR*>(blockBlob);
-		iprintf(indent, "\tunk2 = 0x%08x\n", block->unk2);
-
-		// XXX: Probably an array size
-		//assert(block->unk2 == 0x18);
+		iprintf(indent, "\tlen = %d\n", block->len);
+		blockBlob += sizeof(Block_TPAR);
+		PrintBlock(indent + 1, &blockBlob);
 	}
 	break;
 	case COOKIE("UBUF"):
@@ -341,8 +373,6 @@ bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint
 		Block_RLOC* block = reinterpret_cast<Block_RLOC*>(blockBlob);
 		iprintf(indent, "\tlocation = %u\n", block->location);
 		iprintf(indent, "\tunk3 = 0x%08x\n", block->unk3);
-		iprintf(indent, "\tunk4 = 0x%08x\n", block->unk4);
-		iprintf(indent, "\tunk5 = 0x%08x\n", block->unk5);
 
 		//assert(block->unk2 == 0x0);
 		//assert(block->unk3 == 0x0);
