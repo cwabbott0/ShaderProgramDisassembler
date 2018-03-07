@@ -1204,7 +1204,7 @@ void DumpClause(uint32_t *words, unsigned *size)
 	}
 }
 
-void DumpInstructions(unsigned indent, uint8_t* instBlob, uint32_t size)
+void DisassembleBifrost(uint8_t* instBlob, uint32_t size)
 {
 	uint32_t *words = (uint32_t *) instBlob;
 	uint32_t *wordsEnd = words + (size / 4);

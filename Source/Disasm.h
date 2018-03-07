@@ -1,5 +1,15 @@
 #pragma once
 
-#include <cstdint>
+#include <stdint.h>
 
-void DumpInstructions(unsigned indent, uint8_t* instBlob, uint32_t size);
+void DisassembleBifrost(uint8_t* instBlob, uint32_t size);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void DisassembleMidgard(uint8_t* instBlob, uint32_t size);
+
+#ifdef __cplusplus
+};
+#endif

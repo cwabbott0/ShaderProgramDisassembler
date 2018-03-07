@@ -48,7 +48,7 @@ struct Block_MBS2
 
 struct Block_VEHW
 {
-	uint32_t unk2;
+	uint32_t hwVersion;
 	uint32_t unk3;
 	uint32_t unk4;
 };

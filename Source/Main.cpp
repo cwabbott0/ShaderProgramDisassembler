@@ -70,6 +70,9 @@ void iprintf(unsigned indent, const char *format, ...)
 bool PrintBlocks(unsigned indent, uint8_t *data, size_t size);
 bool PrintBlock(unsigned indent, uint8_t **data);
 
+// TODO make this less hacky
+unsigned hwVersion = 0;
+
 // Attempt to parse a single block with maxSize words
 bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint32_t size)
 {
@@ -97,6 +100,8 @@ bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint
 	case COOKIE("VEHW"):
 	{
 		Block_VEHW* block = reinterpret_cast<Block_VEHW*>(blockBlob);
+		hwVersion = block->hwVersion;
+		iprintf(indent, "hwVersion = %d\n", block->hwVersion);
 		//assert(block->unk2 == 0xb);
 		//assert(block->unk3 == 0x0);
 		//assert(block->unk4 == 0x0);
@@ -347,7 +352,18 @@ bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint
 
 	case COOKIE("OBJC"):
 	{
-		DumpInstructions(indent + 1, blockBlob, size);
+		switch (hwVersion) {
+			case 1: // T600
+			case 5: // T760
+			case 7: // T880
+			case 8: // T860
+			case 10: // T830
+				DisassembleMidgard(blockBlob, size);
+				break;
+			case 11: // G71
+				DisassembleBifrost(blockBlob, size);
+				break;
+		}
 	}
 	break;
 	case COOKIE("CCOM"):
