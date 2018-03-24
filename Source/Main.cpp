@@ -361,6 +361,7 @@ bool ParseSingleBlock(unsigned indent, uint8_t* blockBlob, uint32_t cookie, uint
 				DisassembleMidgard(blockBlob, size);
 				break;
 			case 11: // G71
+			case 12: // G51
 				DisassembleBifrost(blockBlob, size);
 				break;
 		}
