@@ -267,9 +267,12 @@ enum FMASrcType {
 	FMAOneSrc,
 	FMATwoSrc,
 	FMATwoSrcFmod,
+	FMATwoSrcFmod16,
 	FMAFcmp,
+	FMAFcmp16,
 	FMAThreeSrc,
 	FMAThreeSrcFmod,
+	FMAThreeSrcFmod16,
 	FMAFourSrc,
 };
 
@@ -280,14 +283,14 @@ struct FMAOpInfo {
 };
 
 static const FMAOpInfo FMAOpInfos[] = {
-	{ 0x00000, "FMA",  FMAThreeSrcFmod },
-	{ 0x40000, "FMAX", FMATwoSrcFmod },
-	{ 0x44000, "FMIN", FMATwoSrcFmod },
+	{ 0x00000, "FMA.f32",  FMAThreeSrcFmod },
+	{ 0x40000, "MAX.f32", FMATwoSrcFmod },
+	{ 0x44000, "MIN.f32", FMATwoSrcFmod },
 	{ 0x48000, "FCMP.GL", FMAFcmp },
 	{ 0x4c000, "FCMP.D3D", FMAFcmp },
-	{ 0x4ff98, "ADD", FMATwoSrc },
-	{ 0x4ffd8, "SUB", FMATwoSrc },
-	{ 0x4fff0, "SUBB", FMATwoSrc },
+	{ 0x4ff98, "ADD.i32", FMATwoSrc },
+	{ 0x4ffd8, "SUB.i32", FMATwoSrc },
+	{ 0x4fff0, "SUBB.i32", FMATwoSrc },
 	// compute FMA of first three sources, then set exponent to the fourth
 	// source (as an integer).
 	{ 0x50000, "FMA_RSCALE", FMAFourSrc },
@@ -296,52 +299,97 @@ static const FMAOpInfo FMAOpInfos[] = {
 	// compute FMA of first three sources, then add the fourth argument to the
 	// scale (modify scale)
 	{ 0x54000, "FMA_MSCALE", FMAFourSrc },
-	{ 0x58000, "FADD", FMATwoSrcFmod },
-	{ 0x5c000, "CSEL.FEQ", FMAFourSrc },
-	{ 0x5c200, "CSEL.FGT", FMAFourSrc },
-	{ 0x5c400, "CSEL.FGE", FMAFourSrc },
-	{ 0x5c600, "CSEL.IEQ", FMAFourSrc },
-	{ 0x5c800, "CSEL.IGT", FMAFourSrc },
-	{ 0x5ca00, "CSEL.IGE", FMAFourSrc },
-	{ 0x5cc00, "CSEL.UGT", FMAFourSrc },
-	{ 0x5ce00, "CSEL.UGE", FMAFourSrc },
-	{ 0x5de40, "ICMP.GL.GT", FMATwoSrc }, // src0 > src1 ? 1 : 0
-	{ 0x5de48, "ICMP.GL.GE", FMATwoSrc },
-	{ 0x5de50, "UCMP.GL.GT", FMATwoSrc },
-	{ 0x5de58, "UCMP.GL.GE", FMATwoSrc },
-	{ 0x5de60, "ICMP.GL.EQ", FMATwoSrc },
-	{ 0x5dec0, "ICMP.D3D.GT", FMATwoSrc }, // src0 > src1 ? ~0 : 0
-	{ 0x5dec8, "ICMP.D3D.GE", FMATwoSrc },
-	{ 0x5ded0, "UCMP.D3D.GT", FMATwoSrc },
-	{ 0x5ded8, "UCMP.D3D.GE", FMATwoSrc },
-	{ 0x5dee0, "ICMP.D3D.EQ", FMATwoSrc },
-	{ 0x60200, "RSHIFT_NAND", FMAThreeSrc },
-	{ 0x60e00, "RSHIFT_OR", FMAThreeSrc },
-	{ 0x61200, "RSHIFT_AND", FMAThreeSrc },
-	{ 0x61e00, "RSHIFT_NOR", FMAThreeSrc }, // ~((src0 << src2) | src1)
-	{ 0x62200, "LSHIFT_NAND", FMAThreeSrc },
-	{ 0x62e00, "LSHIFT_OR",  FMAThreeSrc }, // (src0 << src2) | src1
-	{ 0x63200, "LSHIFT_AND", FMAThreeSrc }, // (src0 << src2) & src1
-	{ 0x63e00, "LSHIFT_NOR", FMAThreeSrc },
-	{ 0x64200, "RSHIFT_XOR", FMAThreeSrc },
-	{ 0x64600, "RSHIFT_XNOR", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
-	{ 0x64a00, "LSHIFT_XOR", FMAThreeSrc },
-	{ 0x64e00, "LSHIFT_XNOR", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
-	{ 0x65200, "LSHIFT_ADD", FMAThreeSrc },
-	{ 0x65600, "LSHIFT_SUB", FMAThreeSrc }, // (src0 << src2) - src1
-	{ 0x65a00, "LSHIFT_RSUB", FMAThreeSrc }, // src1 - (src0 << src2)
-	{ 0x65e00, "RSHIFT_ADD", FMAThreeSrc },
-	{ 0x66200, "RSHIFT_SUB", FMAThreeSrc },
-	{ 0x66600, "RSHIFT_RSUB", FMAThreeSrc },
-	{ 0x66a00, "ARSHIFT_ADD", FMAThreeSrc },
-	{ 0x66e00, "ARSHIFT_SUB", FMAThreeSrc },
-	{ 0x67200, "ARSHIFT_RSUB", FMAThreeSrc },
-	{ 0xcfc10, "ADDC", FMATwoSrc },
-	{ 0xe0136, "F2I", FMAOneSrc },
-	{ 0xe0137, "F2U", FMAOneSrc },
-	{ 0xe0178, "I2F", FMAOneSrc },
-	{ 0xe0179, "U2F", FMAOneSrc },
-	{ 0xe0199, "U32TOU16", FMAOneSrc }, // out = in & 0xffff
+	{ 0x58000, "ADD.f32", FMATwoSrcFmod },
+	{ 0x5c000, "CSEL.FEQ.f32", FMAFourSrc },
+	{ 0x5c200, "CSEL.FGT.f32", FMAFourSrc },
+	{ 0x5c400, "CSEL.FGE.f32", FMAFourSrc },
+	{ 0x5c600, "CSEL.IEQ.f32", FMAFourSrc },
+	{ 0x5c800, "CSEL.IGT.i32", FMAFourSrc },
+	{ 0x5ca00, "CSEL.IGE.i32", FMAFourSrc },
+	{ 0x5cc00, "CSEL.UGT.i32", FMAFourSrc },
+	{ 0x5ce00, "CSEL.UGE.i32", FMAFourSrc },
+	{ 0x5d8d0, "ICMP.D3D.GT.v2i16", FMATwoSrc },
+	{ 0x5d9d0, "UCMP.D3D.GT.v2i16", FMATwoSrc },
+	{ 0x5dad0, "ICMP.D3D.GE.v2i16", FMATwoSrc },
+	{ 0x5dbd0, "UCMP.D3D.GE.v2i16", FMATwoSrc },
+	{ 0x5dcd0, "ICMP.D3D.EQ.v2i16", FMATwoSrc },
+	{ 0x5de40, "ICMP.GL.GT.i32", FMATwoSrc }, // src0 > src1 ? 1 : 0
+	{ 0x5de48, "ICMP.GL.GE.i32", FMATwoSrc },
+	{ 0x5de50, "UCMP.GL.GT.i32", FMATwoSrc },
+	{ 0x5de58, "UCMP.GL.GE.i32", FMATwoSrc },
+	{ 0x5de60, "ICMP.GL.EQ.i32", FMATwoSrc },
+	{ 0x5dec0, "ICMP.D3D.GT.i32", FMATwoSrc }, // src0 > src1 ? ~0 : 0
+	{ 0x5dec8, "ICMP.D3D.GE.i32", FMATwoSrc },
+	{ 0x5ded0, "UCMP.D3D.GT.i32", FMATwoSrc },
+	{ 0x5ded8, "UCMP.D3D.GE.i32", FMATwoSrc },
+	{ 0x5dee0, "ICMP.D3D.EQ.i32", FMATwoSrc },
+	{ 0x60200, "RSHIFT_NAND.i32", FMAThreeSrc },
+	{ 0x603c0, "RSHIFT_NAND.v2i16", FMAThreeSrc },
+	{ 0x60e00, "RSHIFT_OR.i32", FMAThreeSrc },
+	{ 0x60fc0, "RSHIFT_OR.v2i16", FMAThreeSrc },
+	{ 0x61200, "RSHIFT_AND.i32", FMAThreeSrc },
+	{ 0x613c0, "RSHIFT_AND.v2i16", FMAThreeSrc },
+	{ 0x61e00, "RSHIFT_NOR.i32", FMAThreeSrc }, // ~((src0 << src2) | src1)
+	{ 0x61fc0, "RSHIFT_NOR.v2i16", FMAThreeSrc }, // ~((src0 << src2) | src1)
+	{ 0x62200, "LSHIFT_NAND.i32", FMAThreeSrc },
+	{ 0x623c0, "LSHIFT_NAND.v2i16", FMAThreeSrc },
+	{ 0x62e00, "LSHIFT_OR.i32",  FMAThreeSrc }, // (src0 << src2) | src1
+	{ 0x62fc0, "LSHIFT_OR.v2i16",  FMAThreeSrc }, // (src0 << src2) | src1
+	{ 0x63200, "LSHIFT_AND.i32", FMAThreeSrc }, // (src0 << src2) & src1
+	{ 0x633c0, "LSHIFT_AND.v2i16", FMAThreeSrc },
+	{ 0x63e00, "LSHIFT_NOR.i32", FMAThreeSrc },
+	{ 0x63fc0, "LSHIFT_NOR.v2i16", FMAThreeSrc },
+	{ 0x64200, "RSHIFT_XOR.i32", FMAThreeSrc },
+	{ 0x643c0, "RSHIFT_XOR.v2i16", FMAThreeSrc },
+	{ 0x64600, "RSHIFT_XNOR.i32", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
+	{ 0x647c0, "RSHIFT_XNOR.v2i16", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
+	{ 0x64a00, "LSHIFT_XOR.i32", FMAThreeSrc },
+	{ 0x64bc0, "LSHIFT_XOR.v2i16", FMAThreeSrc },
+	{ 0x64e00, "LSHIFT_XNOR.i32", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
+	{ 0x64fc0, "LSHIFT_XNOR.v2i16", FMAThreeSrc }, // ~((src0 >> src2) ^ src1)
+	{ 0x65200, "LSHIFT_ADD.i32", FMAThreeSrc },
+	{ 0x65600, "LSHIFT_SUB.i32", FMAThreeSrc }, // (src0 << src2) - src1
+	{ 0x65a00, "LSHIFT_RSUB.i32", FMAThreeSrc }, // src1 - (src0 << src2)
+	{ 0x65e00, "RSHIFT_ADD.i32", FMAThreeSrc },
+	{ 0x66200, "RSHIFT_SUB.i32", FMAThreeSrc },
+	{ 0x66600, "RSHIFT_RSUB.i32", FMAThreeSrc },
+	{ 0x66a00, "ARSHIFT_ADD.i32", FMAThreeSrc },
+	{ 0x66e00, "ARSHIFT_SUB.i32", FMAThreeSrc },
+	{ 0x67200, "ARSHIFT_RSUB.i32", FMAThreeSrc },
+	{ 0x80000, "FMA.v2f16",  FMAThreeSrcFmod16 },
+	{ 0xc0000, "MAX.v2f16", FMATwoSrcFmod16 },
+	{ 0xc4000, "MIN.v2f16", FMATwoSrcFmod16 },
+	{ 0xcc000, "FCMP.D3D", FMAFcmp16 },
+	{ 0xcf900, "ADD.v2i16", FMATwoSrc },
+	{ 0xcfc10, "ADDC.i32", FMATwoSrc },
+	{ 0xd8000, "ADD.v2f16", FMATwoSrcFmod16 },
+	{ 0xdc000, "CSEL.FEQ.v2f16", FMAFourSrc },
+	{ 0xdc200, "CSEL.FGT.v2f16", FMAFourSrc },
+	{ 0xdc400, "CSEL.FGE.v2f16", FMAFourSrc },
+	{ 0xdc600, "CSEL.IEQ.v2f16", FMAFourSrc },
+	{ 0xdc800, "CSEL.IGT.v2i16", FMAFourSrc },
+	{ 0xdca00, "CSEL.IGE.v2i16", FMAFourSrc },
+	{ 0xdcc00, "CSEL.UGT.v2i16", FMAFourSrc },
+	{ 0xdce00, "CSEL.UGE.v2i16", FMAFourSrc },
+	{ 0xdd000, "F32_TO_F16", FMATwoSrc },
+	{ 0xe0056, "F16_TO_I16", FMAOneSrc },
+	{ 0xe0057, "F16_TO_U16", FMAOneSrc },
+	{ 0xe00d0, "I16_TO_F16", FMAOneSrc },
+	{ 0xe00d1, "U16_TO_F16", FMAOneSrc },
+	{ 0xe0136, "F32_TO_I32", FMAOneSrc },
+	{ 0xe0137, "F32_TO_U32", FMAOneSrc },
+	{ 0xe0178, "I32_TO_F32", FMAOneSrc },
+	{ 0xe0179, "U32_TO_F32", FMAOneSrc },
+	{ 0xe0198, "I16_TO_I32.X", FMAOneSrc },
+	{ 0xe0199, "U16_TO_U32.X", FMAOneSrc },
+	{ 0xe019a, "I16_TO_I32.Y", FMAOneSrc },
+	{ 0xe019b, "U16_TO_U32.Y", FMAOneSrc },
+	{ 0xe019c, "I16_TO_F32.X", FMAOneSrc },
+	{ 0xe019d, "U16_TO_F32.X", FMAOneSrc },
+	{ 0xe019e, "I16_TO_F32.Y", FMAOneSrc },
+	{ 0xe019f, "U16_TO_F32.Y", FMAOneSrc },
+	{ 0xe01a2, "F16_TO_F32.X", FMAOneSrc },
+	{ 0xe01a3, "F16_TO_F32.Y", FMAOneSrc },
 	{ 0xe032c, "NOP",  FMAOneSrc },
 	{ 0xe032d, "MOV",  FMAOneSrc },
 	// From the ARM patent US20160364209A1:
@@ -372,6 +420,10 @@ static const FMAOpInfo FMAOpInfos[] = {
 	// Similar to the above, but used for normal additions (paired with
 	// ADD_HIGH32 in the ADD slot to do 64-bit addition).
 	{ 0xe1cc0, "ADD_LOW32", FMATwoSrc },
+	{ 0xe1e00, "SEL.XX.i16", FMATwoSrc },
+	{ 0xe1e10, "SEL.XY.i16", FMATwoSrc },
+	{ 0xe1e08, "SEL.YX.i16", FMATwoSrc },
+	{ 0xe1e18, "SEL.YY.i16", FMATwoSrc },
 	{ 0xe7800, "IMAD", FMAThreeSrc },
 	{ 0xe78db, "POPCNT", FMAOneSrc },
 };
@@ -396,9 +448,11 @@ static FMAOpInfo findFMAOpInfo(unsigned op)
 				opCmp = op & ~0x3f;
 				break;
 			case FMATwoSrcFmod:
+			case FMATwoSrcFmod16:
 				opCmp = op & ~0x3fff;
 				break;
 			case FMAThreeSrcFmod:
+			case FMAThreeSrcFmod16:
 				opCmp = op & ~0x3ffff;
 				break;
 			case FMAFourSrc:
@@ -443,6 +497,57 @@ static void DumpFCMP(unsigned op)
 		}
 }
 
+static void Dump16Swizzle(unsigned swiz)
+{
+	if (swiz == 2)
+		return;
+	printf(".%c%c", "xy"[swiz & 1], "xy"[(swiz >> 1) & 1]);
+}
+
+static void DumpFMAExpandSrc0(unsigned ctrl)
+{
+		switch (ctrl) {
+			case 3:
+			case 4:
+			case 6:
+				printf(".x");
+				break;
+			case 5:
+			case 7:
+				printf(".y");
+				break;
+			case 0:
+			case 1:
+			case 2:
+				break;
+			default:
+				printf(".unk");
+				break;
+		}
+}
+
+static void DumpFMAExpandSrc1(unsigned ctrl)
+{
+		switch (ctrl) {
+			case 1:
+			case 3:
+				printf(".x");
+				break;
+			case 2:
+			case 4:
+			case 5:
+				printf(".y");
+				break;
+			case 0:
+			case 6:
+			case 7:
+				break;
+			default:
+				printf(".unk");
+				break;
+		}
+}
+
 static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 {
 	printf("# FMA: %016" PRIx64 "\n", word);
@@ -452,11 +557,17 @@ static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 
 	printf("%s", info.name);
 	if (info.srcType == FMATwoSrcFmod ||
-		info.srcType == FMAThreeSrcFmod) {
+		info.srcType == FMAThreeSrcFmod ||
+		info.srcType == FMATwoSrcFmod16 ||
+		info.srcType == FMAThreeSrcFmod16) {
 		// output modifiers
 		DumpOutputMod(bits(FMA.op, 12, 14));
-	} else if (info.srcType == FMAFcmp) {
+	} else if (info.srcType == FMAFcmp || info.srcType == FMAFcmp16) {
 		DumpFCMP(bits(FMA.op, 10, 13));
+		if (info.srcType == FMAFcmp)
+			printf(".f32");
+		else
+			printf(".v2f16");
 	}
 
 	printf(" ");
@@ -483,6 +594,7 @@ static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 			if (FMA.op & 0x200)
 				printf("abs(");
 			DumpSrc(FMA.src0, regs, consts, true);
+			DumpFMAExpandSrc0((FMA.op >> 6) & 0x7);
 			if (FMA.op & 0x200)
 				printf(")");
 			printf(", ");
@@ -491,13 +603,37 @@ static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 			if (FMA.op & 0x8)
 				printf("abs(");
 			DumpSrc(FMA.op & 0x7, regs, consts, true);
+			DumpFMAExpandSrc1((FMA.op >> 6) & 0x7);
 			if (FMA.op & 0x8)
 				printf(")");
 			break;
+		case FMATwoSrcFmod16: {
+			bool abs1 = FMA.op & 0x8;
+			bool abs2 = (FMA.op & 0x7) < FMA.src0;
+			if (FMA.op & 0x10)
+				printf("-");
+			if (abs1 || abs2)
+				printf("abs(");
+			DumpSrc(FMA.src0, regs, consts, true);
+			Dump16Swizzle((FMA.op >> 6) & 0x3);
+			if (abs1 || abs2)
+				printf(")");
+			printf(", ");
+			if (FMA.op & 0x20)
+				printf("-");
+			if (abs1 && abs2)
+				printf("abs(");
+			DumpSrc(FMA.op & 0x7, regs, consts, true);
+			Dump16Swizzle((FMA.op >> 8) & 0x3);
+			if (abs1 && abs2)
+				printf(")");
+			break;
+		}
 		case FMAFcmp:
 			if (FMA.op & 0x200)
 				printf("abs(");
 			DumpSrc(FMA.src0, regs, consts, true);
+			DumpFMAExpandSrc0((FMA.op >> 6) & 0x7);
 			if (FMA.op & 0x200)
 				printf(")");
 			printf(", ");
@@ -506,8 +642,18 @@ static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 			if (FMA.op & 0x8)
 				printf("abs(");
 			DumpSrc(FMA.op & 0x7, regs, consts, true);
+			DumpFMAExpandSrc1((FMA.op >> 6) & 0x7);
 			if (FMA.op & 0x8)
 				printf(")");
+			break;
+		case FMAFcmp16:
+			DumpSrc(FMA.src0, regs, consts, true);
+			// Note: this is kinda a guess, I haven't seen the blob set this to
+			// anything other than the identity, but it matches FMATwoSrcFmod16
+			Dump16Swizzle((FMA.op >> 6) & 0x3);
+			printf(", ");
+			DumpSrc(FMA.op & 0x7, regs, consts, true);
+			Dump16Swizzle((FMA.op >> 8) & 0x3);
 			break;
 		case FMAThreeSrc:
 			DumpSrc(FMA.src0, regs, consts, true);
@@ -522,12 +668,14 @@ static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 			if (FMA.op & (1 << 9))
 				printf("abs(");
 			DumpSrc(FMA.src0, regs, consts, true);
+			DumpFMAExpandSrc0((FMA.op >> 6) & 0x7);
 			if (FMA.op & (1 << 9))
 				printf(")");
 			printf(", ");
 			if (FMA.op & (1 << 16))
 				printf("abs(");
 			DumpSrc(FMA.op & 0x7, regs, consts, true);
+			DumpFMAExpandSrc1((FMA.op >> 6) & 0x7);
 			if (FMA.op & (1 << 16))
 				printf(")");
 			printf(", ");
@@ -538,6 +686,20 @@ static void DumpFMA(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts)
 			DumpSrc((FMA.op >> 3) & 0x7, regs, consts, true);
 			if (FMA.op & (1 << 17))
 				printf(")");
+			break;
+		case FMAThreeSrcFmod16:
+			if (FMA.op & (1 << 14))
+				printf("-");
+			DumpSrc(FMA.src0, regs, consts, true);
+			Dump16Swizzle((FMA.op >> 6) & 0x3);
+			printf(", ");
+			DumpSrc(FMA.op & 0x7, regs, consts, true);
+			Dump16Swizzle((FMA.op >> 8) & 0x3);
+			printf(", ");
+			if (FMA.op & (1 << 15))
+				printf("-");
+			DumpSrc((FMA.op >> 3) & 0x7, regs, consts, true);
+			Dump16Swizzle((FMA.op >> 16) & 0x3);
 			break;
 		case FMAFourSrc:
 			DumpSrc(FMA.src0, regs, consts, true);
@@ -561,6 +723,9 @@ enum ADDSrcType {
 	ADDOneSrc,
 	ADDTwoSrc,
 	ADDTwoSrcFmod,
+	ADDTwoSrcFmod16,
+	ADDTwoSrcFmod16Commutative,
+	ADDThreeSrc,
 	ADDFcmp,
 	ADDTexCompact, // texture instruction with embedded sampler
 	ADDTex, // texture instruction with sampler/etc. in uniform port
@@ -576,16 +741,31 @@ struct ADDOpInfo {
 };
 
 static const ADDOpInfo ADDOpInfos[] = {
-	{ 0x00000, "FMAX", ADDTwoSrcFmod },
-	{ 0x02000, "FMIN", ADDTwoSrcFmod },
-	{ 0x04000, "FADD", ADDTwoSrcFmod },
+	{ 0x00000, "MAX.f32", ADDTwoSrcFmod },
+	{ 0x02000, "MIN.f32", ADDTwoSrcFmod },
+	{ 0x04000, "ADD.f32", ADDTwoSrcFmod },
 	{ 0x06000, "FCMP.GL", ADDFcmp },
 	{ 0x07000, "FCMP.D3D", ADDFcmp },
-	{ 0x07936, "F2I", ADDOneSrc },
-	{ 0x07937, "F2U", ADDOneSrc },
-	{ 0x07978, "I2F", ADDOneSrc },
-	{ 0x07979, "U2F", ADDOneSrc },
-	{ 0x07999, "U32TOU16", ADDOneSrc },
+	{ 0x07856, "F16_TO_I16", ADDOneSrc },
+	{ 0x07857, "F16_TO_U16", ADDOneSrc },
+	{ 0x078d0, "I16_TO_F16", ADDOneSrc },
+	{ 0x078d1, "U16_TO_F16", ADDOneSrc },
+	{ 0x07936, "F32_TO_I32", ADDOneSrc },
+	{ 0x07937, "F32_TO_U32", ADDOneSrc },
+	{ 0x07978, "I32_TO_F32", ADDOneSrc },
+	{ 0x07979, "U32_TO_F32", ADDOneSrc },
+	{ 0x07998, "I16_TO_I32.X", ADDOneSrc },
+	{ 0x07999, "U16_TO_U32.X", ADDOneSrc },
+	{ 0x0799a, "I16_TO_I32.Y", ADDOneSrc },
+	{ 0x0799b, "U16_TO_U32.Y", ADDOneSrc },
+	{ 0x0799c, "I16_TO_F32.X", ADDOneSrc },
+	{ 0x0799d, "U16_TO_F32.X", ADDOneSrc },
+	{ 0x0799e, "I16_TO_F32.Y", ADDOneSrc },
+	{ 0x0799f, "U16_TO_F32.Y", ADDOneSrc },
+	// take the low 16 bits, and expand it to a 32-bit float
+	{ 0x079a2, "F16_TO_F32.X", ADDOneSrc },
+	// take the high 16 bits, ...
+	{ 0x079a3, "F16_TO_F32.Y", ADDOneSrc },
 	{ 0x07b2c, "NOP",  ADDOneSrc },
 	{ 0x07b2d, "MOV",  ADDOneSrc },
 	{ 0x07b8d, "FRCP_EXP", ADDOneSrc },
@@ -600,7 +780,7 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x07d45, "CEIL", ADDOneSrc },
 	{ 0x07d85, "FLOOR", ADDOneSrc },
 	{ 0x07f18, "ADD_HIGH32", ADDTwoSrc },
-	{ 0x0a000, "LD_VAR", ADDVaryingInterp },
+	{ 0x0a000, "LD_VAR.32", ADDVaryingInterp, true },
 	{ 0x0b000, "TEX", ADDTexCompact, true },
 	{ 0x0c188, "LOAD.i32", ADDTwoSrc, true },
 	{ 0x0c1c8, "LOAD.v2i32", ADDTwoSrc, true },
@@ -619,6 +799,11 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x0cf50, "SIN_TABLE", ADDOneSrc },
 	{ 0x0cf51, "COS_TABLE", ADDOneSrc },
 	{ 0x0cf60, "FLOG2_TABLE", ADDOneSrc },
+	{ 0x0ea60, "SEL.XX.i16", ADDTwoSrc },
+	{ 0x0ea70, "SEL.XY.i16", ADDTwoSrc },
+	{ 0x0ea68, "SEL.YX.i16", ADDTwoSrc },
+	{ 0x0ea78, "SEL.YY.i16", ADDTwoSrc },
+	{ 0x0ec00, "F32_TO_F16", ADDTwoSrc },
 	{ 0x0cf64, "FLOGE_TABLE", ADDOneSrc },
 	{ 0x0f640, "ICMP.GL.GT", ADDTwoSrc }, // src0 > src1 ? 1 : 0
 	{ 0x0f648, "ICMP.GL.GE", ADDTwoSrc },
@@ -630,9 +815,13 @@ static const ADDOpInfo ADDOpInfos[] = {
 	{ 0x0f6d0, "UCMP.D3D.GT", ADDTwoSrc },
 	{ 0x0f6d8, "UCMP.D3D.GE", ADDTwoSrc },
 	{ 0x0f6e0, "ICMP.D3D.EQ", ADDTwoSrc },
-	{ 0x178c0, "ADD",  ADDTwoSrc },
-	{ 0x17ac0, "SUB",  ADDTwoSrc },
-	{ 0x17c10, "ADDC", ADDTwoSrc }, // adds src0 to the bottom bit of src1
+	{ 0x10000, "MAX.v2f16", ADDTwoSrcFmod16Commutative },
+	{ 0x12000, "MIN.v2f16", ADDTwoSrcFmod16Commutative },
+	{ 0x14000, "ADD.v2f16", ADDTwoSrcFmod16 },
+	{ 0x178c0, "ADD.i32",  ADDTwoSrc },
+	{ 0x17900, "ADD.v2i16", ADDTwoSrc },
+	{ 0x17ac0, "SUB.i32",  ADDTwoSrc },
+	{ 0x17c10, "ADDC.i32", ADDTwoSrc }, // adds src0 to the bottom bit of src1
 	// Implements alpha-to-coverage, as well as possibly the late depth and
 	// stencil tests. The first source is the existing sample mask in R60
 	// (possibly modified by gl_SampleMask), and the second source is the alpha
@@ -641,17 +830,41 @@ static const ADDOpInfo ADDOpInfos[] = {
 	// since that doesn't need to read from any memory, and then written again
 	// later based on the result of the stencil and depth tests using the
 	// special register.
-	{ 0x191e8, "ATEST", ADDTwoSrc, true },
+	{ 0x191e8, "ATEST.f32", ADDTwoSrc, true },
+	{ 0x191f0, "ATEST.X.f16", ADDTwoSrc, true },
+	{ 0x191f8, "ATEST.Y.f16", ADDTwoSrc, true },
 	// This takes the sample coverage mask (computed by ATEST above) as a
 	// regular argument, in addition to the vec4 color in the special register.
 	{ 0x1952c, "BLEND", ADDBlending, true },
-	{ 0x1dd18, "OR",  ADDTwoSrc },
-	{ 0x1dd60, "LSHIFT", ADDTwoSrc },
-	{ 0x1dd20, "AND",  ADDTwoSrc },
-	{ 0x1dd50, "XOR",  ADDTwoSrc },
-	{ 0x1dd84, "RSHIFT", ADDTwoSrc },
-	{ 0x1dda4, "ARSHIFT", ADDTwoSrc },
+	{ 0x1a000, "LD_VAR.16", ADDVaryingInterp, true },
 	{ 0x1ae60, "TEX", ADDTex, true },
+	{ 0x1c000, "RSHIFT_NAND.i32", ADDThreeSrc },
+	{ 0x1c300, "RSHIFT_OR.i32", ADDThreeSrc },
+	{ 0x1c400, "RSHIFT_AND.i32", ADDThreeSrc },
+	{ 0x1c700, "RSHIFT_NOR.i32", ADDThreeSrc },
+	{ 0x1c800, "LSHIFT_NAND.i32", ADDThreeSrc },
+	{ 0x1cb00, "LSHIFT_OR.i32", ADDThreeSrc },
+	{ 0x1cc00, "LSHIFT_AND.i32", ADDThreeSrc },
+	{ 0x1cf00, "LSHIFT_NOR.i32", ADDThreeSrc },
+	{ 0x1d000, "RSHIFT_XOR.i32", ADDThreeSrc },
+	{ 0x1d100, "RSHIFT_XNOR.i32", ADDThreeSrc },
+	{ 0x1d200, "LSHIFT_XOR.i32", ADDThreeSrc },
+	{ 0x1d300, "LSHIFT_XNOR.i32", ADDThreeSrc },
+	{ 0x1d400, "LSHIFT_ADD.i32", ADDThreeSrc },
+	{ 0x1d500, "LSHIFT_SUB.i32", ADDThreeSrc },
+	{ 0x1d500, "LSHIFT_RSUB.i32", ADDThreeSrc },
+	{ 0x1d700, "RSHIFT_ADD.i32", ADDThreeSrc },
+	{ 0x1d800, "RSHIFT_SUB.i32", ADDThreeSrc },
+	{ 0x1d900, "RSHIFT_RSUB.i32", ADDThreeSrc },
+	{ 0x1da00, "ARSHIFT_ADD.i32", ADDThreeSrc },
+	{ 0x1db00, "ARSHIFT_SUB.i32", ADDThreeSrc },
+	{ 0x1dc00, "ARSHIFT_RSUB.i32", ADDThreeSrc },
+	{ 0x1dd18, "OR.i32",  ADDTwoSrc },
+	{ 0x1dd20, "AND.i32",  ADDTwoSrc },
+	{ 0x1dd60, "LSHIFT.i32", ADDTwoSrc },
+	{ 0x1dd50, "XOR.i32",  ADDTwoSrc },
+	{ 0x1dd80, "RSHIFT.i32", ADDTwoSrc },
+	{ 0x1dda0, "ARSHIFT.i32", ADDTwoSrc },
 };
 
 static ADDOpInfo findADDOpInfo(unsigned op)
@@ -666,11 +879,18 @@ static ADDOpInfo findADDOpInfo(unsigned op)
 			case ADDTwoSrc:
 				opCmp = op & ~0x7;
 				break;
+			case ADDThreeSrc:
+				opCmp = op & ~0x3f;
+				break;
 			case ADDTex:
 				opCmp = op & ~0xf;
 				break;
 			case ADDTwoSrcFmod:
+			case ADDTwoSrcFmod16:
 				opCmp = op & ~0x1fff;
+				break;
+			case ADDTwoSrcFmod16Commutative:
+				opCmp = op & ~0xfff;
 				break;
 			case ADDFcmp:
 				opCmp = op & ~0x7ff;
@@ -729,6 +949,8 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts, u
 	ADDOpInfo info = findADDOpInfo(ADD.op);
 
 	printf("%s", info.name);
+
+	// float16 seems like it doesn't support output modifiers
 	if (info.srcType == ADDTwoSrcFmod) {
 		// output modifiers
 		DumpOutputMod(bits(ADD.op, 8, 10));
@@ -903,12 +1125,26 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts, u
 			printf(", ");
 			DumpSrc(ADD.op & 0x7, regs, consts, false);
 			break;
+		case ADDThreeSrc:
+			DumpSrc(ADD.src0, regs, consts, false);
+			printf(", ");
+			DumpSrc(ADD.op & 0x7, regs, consts, false);
+			printf(", ");
+			DumpSrc((ADD.op >> 3) & 0x7, regs, consts, false);
+			break;
 		case ADDTwoSrcFmod:
 			if (ADD.op & 0x10)
 				printf("-");
 			if (ADD.op & 0x1000)
 				printf("abs(");
 			DumpSrc(ADD.src0, regs, consts, false);
+			switch ((ADD.op >> 6) & 0x3) {
+				case 3:
+					printf(".x");
+					break;
+				default:
+					break;
+			}
 			if (ADD.op & 0x1000)
 				printf(")");
 			printf(", ");
@@ -917,9 +1153,64 @@ static void DumpADD(uint64_t word, Regs regs, Regs nextRegs, uint64_t *consts, u
 			if (ADD.op & 0x8)
 				printf("abs(");
 			DumpSrc(ADD.op & 0x7, regs, consts, false);
+			switch ((ADD.op >> 6) & 0x3) {
+				case 1:
+				case 3:
+					printf(".x");
+					break;
+				case 2:
+					printf(".y");
+					break;
+				case 0:
+					break;
+				default:
+					printf(".unk");
+					break;
+			}
 			if (ADD.op & 0x8)
 				printf(")");
 			break;
+		case ADDTwoSrcFmod16:
+			if (ADD.op & 0x10)
+				printf("-");
+			if (ADD.op & 0x1000)
+				printf("abs(");
+			DumpSrc(ADD.src0, regs, consts, false);
+			if (ADD.op & 0x1000)
+				printf(")");
+			Dump16Swizzle((ADD.op >> 6) & 0x3);
+			printf(", ");
+			if (ADD.op & 0x20)
+				printf("-");
+			if (ADD.op & 0x8)
+				printf("abs(");
+			DumpSrc(ADD.op & 0x7, regs, consts, false);
+			Dump16Swizzle((ADD.op >> 8) & 0x3);
+			if (ADD.op & 0x8)
+				printf(")");
+			break;
+		case ADDTwoSrcFmod16Commutative: {
+			bool abs1 = ADD.op & 0x8;
+			bool abs2 = (ADD.op & 0x7) < ADD.src0;
+			if (ADD.op & 0x10)
+				printf("-");
+			if (abs1 || abs2)
+				printf("abs(");
+			DumpSrc(ADD.src0, regs, consts, false);
+			Dump16Swizzle((ADD.op >> 6) & 0x3);
+			if (abs1 || abs2)
+				printf(")");
+			printf(", ");
+			if (ADD.op & 0x20)
+				printf("-");
+			if (abs1 && abs2)
+				printf("abs(");
+			DumpSrc(ADD.op & 0x7, regs, consts, false);
+			Dump16Swizzle((ADD.op >> 8) & 0x3);
+			if (abs1 && abs2)
+				printf(")");
+			break;
+		}
 		case ADDFcmp:
 			if (ADD.op & 0x400) {
 				printf("-");
