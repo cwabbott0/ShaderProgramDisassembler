@@ -966,37 +966,86 @@ void DumpInstr(const AluInstr &instr, Regs nextRegs, uint64_t *consts, unsigned 
 }
 
 struct Header {
-	uint64_t unk0 : 18;
+	uint64_t unk0 : 11;
+	// true if the execution mask of the next clause is the same as the mask of
+	// the current clause.
+	uint64_t backToBack : 1;
+	uint64_t noEndOfShader : 1;
+	uint64_t unk1 : 2;
+	// Set to true for fragment shaders, to implement this bit of spec text
+	// from section 7.1.5 of the GLSL ES spec:
+	//
+	// "Stores to image and buffer variables performed by helper invocations
+	// have no effect on the underlying image or buffer memory."
+	//
+	// Helper invocations are threads (invocations) corresponding to pixels in
+	// a quad that aren't actually part of the triangle, but are included to
+	// make derivatives work correctly. They're usually turned on, but they
+	// need to be masked off for GLSL-level stores. This bit seems to be the
+	// only bit that's actually different between fragment shaders and other
+	// shaders, so this is probably what it's doing.
+	uint64_t elideWrites : 1;
+	// If backToBack is off:
+	// - true for conditional branches and fallthrough
+	// - false for unconditional branches
+	// The blob seems to always set it to true if back-to-back is on.
+	uint64_t branchCond : 1;
+	uint64_t unk2 : 1;
 	uint64_t dataReg : 6;
-	uint64_t scoreboardDeps : 6;
-	uint64_t unk1 : 2; // future expansion for scoreboardDeps?
+	uint64_t scoreboardDeps : 8;
 	uint64_t scoreboardIndex : 3;
 	uint64_t clauseType : 4;
-	uint64_t unk2 : 1; // part of clauseType?
+	uint64_t unk3 : 1; // part of clauseType?
 	uint64_t nextClauseType : 4;
-	uint64_t unk3 : 1; // part of nextClauseType?
+	uint64_t unk4 : 1; // part of nextClauseType?
 };
 
 void DumpHeader(Header header)
 {
 	if (header.clauseType != 0) {
-		printf("id(%d)", header.scoreboardIndex);
-		if (header.scoreboardDeps != 0) {
-			printf(", next-wait(");
-			bool first = true;
-			for (unsigned i = 0; i < 6; i++) {
-				if (header.scoreboardDeps & (1 << i)) {
-					if (!first) {
-						printf(", ");
-					}
-					printf("%d", i);
-					first = false;
-				}
-			}
-			printf(")");
-		}
-		printf("\n");
+		printf("id(%d) ", header.scoreboardIndex);
 	}
+	if (header.scoreboardDeps != 0) {
+		printf("next-wait(");
+		bool first = true;
+		for (unsigned i = 0; i < 8; i++) {
+			if (header.scoreboardDeps & (1 << i)) {
+				if (!first) {
+					printf(", ");
+				}
+				printf("%d", i);
+				first = false;
+			}
+		}
+		printf(") ");
+	}
+
+	if (!header.noEndOfShader)
+		printf("eos ");
+
+	if (!header.backToBack) {
+		printf("nbb ");
+		if (header.branchCond)
+			printf("branch-cond ");
+		else
+			printf("branch-uncond ");
+	}
+
+	if (header.elideWrites)
+		printf("we ");
+
+	if (header.unk0)
+		printf("unk0");
+	if  (header.unk1)
+		printf("unk1");
+	if (header.unk2)
+		printf("unk2");
+	if (header.unk3)
+		printf("unk3");
+	if (header.unk4)
+		printf("unk4");
+
+	printf("\n");
 
 	printf("# clause type %d, next clause type %d\n",
 		   header.clauseType, header.nextClauseType);
